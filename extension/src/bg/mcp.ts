@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js"
-import { registerBrowserTools, registerPageTools, insiderTools } from "./tools"
+import { registerBrowserTools, registerPageTools, registerScrapeRuleTools, insiderTools } from "./tools"
 import { Subject } from "rxjs"
 import { version } from "@/manifest"
 
@@ -60,6 +60,7 @@ export async function createMCPServer() {
 
   registerBrowserTools(server)
   registerPageTools(server)
+  registerScrapeRuleTools(server)
 
   if (version == "0.0.0") {
     insiderTools(server)

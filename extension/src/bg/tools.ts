@@ -1,9 +1,26 @@
 import { z } from "zod"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { TextResult, ImageResult } from "@/utils/tools"
+import { getLocal, setLocal } from "@/utils/ext"
 import { msgInvoker } from "@/utils/invoker"
 import { InvokerFunc } from "@/types"
 import { contentScript, contentMainScript } from "@/manifest"
+
+interface ScrapeRule {
+  name: string
+  urlPattern: string
+  fields: any[]
+  createdAt: number
+  updatedAt: number
+}
+
+function matchUrl(url: string, pattern: string): boolean {
+  try {
+    return new URLPattern(pattern).test(url)
+  } catch {
+    return url.includes(pattern)
+  }
+}
 
 export function registerBrowserTools(server: McpServer) {
   server.tool("switch-tab", { id: z.number() }, async ({ id }) => {
@@ -271,15 +288,127 @@ export function registerPageTools(server: McpServer) {
     {
       fields: z
         .array(scrapeFieldSchema)
+        .optional()
         .describe("Array of field definitions describing what to extract"),
+      rule: z
+        .string()
+        .optional()
+        .describe("Use a saved rule by name"),
+      auto_match: z
+        .boolean()
+        .optional()
+        .describe("Auto-match a saved rule by current page URL"),
     },
-    async ({ fields }) => {
+    async ({ fields, rule, auto_match }) => {
+      let resolvedFields = fields
+
+      if (rule) {
+        const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
+        const found = scrape_rules.find((r) => r.name === rule)
+        if (!found) return TextResult(`Rule "${rule}" not found`)
+        resolvedFields = found.fields
+      } else if (auto_match) {
+        const tab = await tabReady()
+        const url = tab.url || ""
+        const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
+        const matched = scrape_rules.find((r) => matchUrl(url, r.urlPattern))
+        if (!matched) return TextResult(`No matching rule for ${url}`)
+        resolvedFields = matched.fields
+      }
+
+      if (!resolvedFields?.length) {
+        return TextResult("Error: provide fields, rule name, or set auto_match=true")
+      }
+
       const tab = await tabReady()
       return msgInvoker.invoke({
         tabId: tab.id,
         func: InvokerFunc.CallTools,
-        args: ["scrape", { fields: JSON.stringify(fields) }],
+        args: ["scrape", { fields: JSON.stringify(resolvedFields) }],
       })
+    }
+  )
+}
+
+export function registerScrapeRuleTools(server: McpServer) {
+  const scrapeFieldSchema: z.ZodTypeAny = z.lazy(() =>
+    z.object({
+      key: z.string().describe("Output field name"),
+      selector: z.string().describe("CSS selector"),
+      type: z
+        .enum(["text", "html", "attribute", "list"])
+        .default("text"),
+      attribute: z.string().optional(),
+      fields: z.array(scrapeFieldSchema).optional(),
+    })
+  )
+
+  server.tool(
+    "scrape_rule_add",
+    "Save a scrape rule for reuse",
+    {
+      name: z.string().describe("Unique rule name"),
+      urlPattern: z
+        .string()
+        .describe("URL pattern to auto-match (e.g. https://github.com/*)"),
+      fields: z
+        .array(scrapeFieldSchema)
+        .describe("Field definitions"),
+    },
+    async ({ name, urlPattern, fields }) => {
+      const { scrape_rules = [] } = await getLocal<{
+        scrape_rules: ScrapeRule[]
+      }>("scrape_rules")
+      const now = Date.now()
+      const idx = scrape_rules.findIndex((r) => r.name === name)
+      const rule: ScrapeRule = {
+        name,
+        urlPattern,
+        fields,
+        createdAt: now,
+        updatedAt: now,
+      }
+      if (idx >= 0) {
+        rule.createdAt = scrape_rules[idx].createdAt
+        scrape_rules[idx] = rule
+      } else {
+        scrape_rules.push(rule)
+      }
+      await setLocal({ scrape_rules })
+      return TextResult(`Rule "${name}" saved`)
+    }
+  )
+
+  server.tool("scrape_rule_list", "List all saved scrape rules", async () => {
+    const { scrape_rules = [] } = await getLocal<{
+      scrape_rules: ScrapeRule[]
+    }>("scrape_rules")
+    if (!scrape_rules.length) return TextResult("No rules saved")
+    const text = scrape_rules
+      .map(
+        (r) =>
+          `Name: ${r.name}\nPattern: ${r.urlPattern}\nFields: ${r.fields.map((f) => f.key).join(", ")}`
+      )
+      .join("\n\n")
+    return TextResult(text)
+  })
+
+  server.tool(
+    "scrape_rule_remove",
+    "Remove a saved scrape rule",
+    {
+      name: z.string().describe("Rule name to remove"),
+    },
+    async ({ name }) => {
+      const { scrape_rules = [] } = await getLocal<{
+        scrape_rules: ScrapeRule[]
+      }>("scrape_rules")
+      const filtered = scrape_rules.filter((r) => r.name !== name)
+      if (filtered.length === scrape_rules.length) {
+        return TextResult(`Rule "${name}" not found`)
+      }
+      await setLocal({ scrape_rules: filtered })
+      return TextResult(`Rule "${name}" removed`)
     }
   )
 }
