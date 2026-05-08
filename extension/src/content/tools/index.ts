@@ -1,5 +1,5 @@
 import { TextResult } from "@/utils/tools"
-import { page_snapshot, click, dblclick, type, press_key } from "./operate"
+import { page_snapshot, click, dblclick, type, press_key, scroll, hover } from "./operate"
 
 export const tools = {
   page_snapshot,
@@ -7,6 +7,8 @@ export const tools = {
   dblclick,
   type,
   press_key,
+  scroll,
+  hover,
 }
 
 export async function handleToolCall(
@@ -25,6 +27,10 @@ export async function handleToolCall(
         return await tools.type(params.ref, params.text)
       case "press_key":
         return await tools.press_key(params.ref, params.key)
+      case "scroll":
+        return await tools.scroll(params.ref || null, params.direction, Number(params.amount) || 3)
+      case "hover":
+        return await tools.hover(params.ref)
     }
   } catch (err) {
     return TextResult(`Error: ${err?.message || err}`)

@@ -10,3 +10,15 @@ export function TextResult(text: string): CallToolResult {
     ],
   }
 }
+
+export function ImageResult(base64: string, mimeType: string): CallToolResult {
+  return {
+    content: [
+      {
+        type: "image",
+        data: base64,
+        mimeType,
+      },
+    ],
+  }
+}

@@ -3,9 +3,11 @@ interface Element {
     id: string
     inaccessible: boolean
     subtreeInaccessible: boolean
-    role: string
+    role: string | undefined
     name: string
     disabled: boolean
+    rect?: { x: number; y: number; width: number; height: number }
+    visible?: boolean
   }
 }
 

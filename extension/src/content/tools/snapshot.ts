@@ -25,16 +25,26 @@ export async function snapshot(node: Element) {
     const disabled = isDisabled(current)
     const isEditable = (current as HTMLElement).contentEditable == "true"
 
+    const rect = current.getBoundingClientRect()
+    const style = getComputedStyle(current)
+
     const a11y = current.__a11y
     const id = a11y?.id || generateId()
     current.__a11y = {
       id: id,
       role: getRole(current) || (isEditable ? "textbox" : undefined),
       name: computeAccessibleName(current),
-      // desc: computeAccessibleDescription(current),
       disabled,
       inaccessible,
       subtreeInaccessible,
+      rect:
+        rect.width > 0
+          ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
+          : undefined,
+      visible:
+        style.display !== "none" &&
+        style.visibility !== "hidden" &&
+        parseFloat(style.opacity) > 0,
     }
 
     idMap.set(id, current)
@@ -89,15 +99,22 @@ function accessibleHtml(node: Node): string {
 
 function attributes(el: Element, innerHtml: string) {
   const { nodeName } = el
-  const { id, name, role } = el.__a11y || {}
+  const { id, name, role, rect, visible } = el.__a11y || {}
 
   const attrs: Record<string, string> = {
     id: id,
   }
 
+  if (rect) {
+    attrs["data-coords"] = `${Math.round(rect.x)},${Math.round(rect.y)},${Math.round(rect.width)},${Math.round(rect.height)}`
+  }
+  if (visible === false) {
+    attrs["data-hidden"] = "true"
+  }
+
   switch (nodeName) {
     case "A":
-      // attrs.href = el.getAttribute("href")
+      if (el.getAttribute("href")) attrs.href = el.getAttribute("href")!
       break
     case "DIV":
       if (role == "textbox") {
@@ -107,6 +124,24 @@ function attributes(el: Element, innerHtml: string) {
         attrs["role"] = role
       }
       break
+    case "INPUT":
+    case "TEXTAREA":
+      if (el.getAttribute("type")) attrs.type = el.getAttribute("type")!
+      if (el.getAttribute("placeholder"))
+        attrs.placeholder = el.getAttribute("placeholder")!
+      if ((el as HTMLInputElement).value)
+        attrs.value = (el as HTMLInputElement).value
+      break
+    case "SELECT":
+      if ((el as HTMLSelectElement).value)
+        attrs.value = (el as HTMLSelectElement).value
+      break
+    case "BUTTON":
+      break
+  }
+
+  if (role && nodeName !== "DIV") {
+    attrs["role"] = role
   }
 
   return Object.entries(attrs)

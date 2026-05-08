@@ -30,6 +30,7 @@ const ctx = await esbuild.context({
   outdir: outdir,
   alias: {
     "@": "./src/",
+    "@web-mcp/syn": "../packages/syn/dist/index.mjs",
   },
   define: {
     __DEV__: JSON.stringify(__DEV__),

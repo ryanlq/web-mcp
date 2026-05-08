@@ -57,3 +57,29 @@ export async function press_key(ref: string, key: string) {
   syn.key(el, key)
   return TextResult("done")
 }
+
+export async function scroll(ref: string | null, direction: string, amount: number) {
+  if (ref) {
+    queryRef(ref).scrollIntoView({ behavior: "smooth", block: "center" })
+  } else {
+    const delta = amount * 300
+    const map: Record<string, [number, number]> = {
+      down: [0, delta],
+      up: [0, -delta],
+      right: [delta, 0],
+      left: [-delta, 0],
+    }
+    const [x, y] = map[direction || "down"]
+    window.scrollBy(x, y)
+  }
+  return TextResult("done")
+}
+
+export async function hover(ref: string) {
+  const el = queryRef(ref)
+  el.dispatchEvent(
+    new MouseEvent("mouseover", { bubbles: true, cancelable: true })
+  )
+  el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }))
+  return TextResult("done")
+}

@@ -1,8 +1,9 @@
 import { z } from "zod"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { TextResult } from "@/utils/tools"
+import { TextResult, ImageResult } from "@/utils/tools"
 import { msgInvoker } from "@/utils/invoker"
 import { InvokerFunc } from "@/types"
+import { contentScript, contentMainScript } from "@/manifest"
 
 export function registerBrowserTools(server: McpServer) {
   server.tool("switch-tab", { id: z.number() }, async ({ id }) => {
@@ -42,6 +43,24 @@ export function registerBrowserTools(server: McpServer) {
     await new Promise((r) => setTimeout(r, seconds * 1000))
     return TextResult("Done")
   })
+
+  server.tool(
+    "screenshot",
+    "Capture a screenshot of the current tab",
+    {
+      format: z.enum(["png", "jpeg"]).optional().describe("Image format (default: png)"),
+      quality: z.number().min(1).max(100).optional().describe("Image quality for jpeg (1-100)"),
+    },
+    async ({ format, quality }) => {
+      const tab = await tabReady()
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId!, {
+        format: format || "png",
+        quality,
+      })
+      const base64 = dataUrl.split(",")[1]
+      return ImageResult(base64, `image/${format || "png"}`)
+    }
+  )
 }
 
 export function registerPageTools(server: McpServer) {
@@ -120,6 +139,108 @@ export function registerPageTools(server: McpServer) {
       args: ["press_key", { element, ref, key }],
     })
   })
+
+  server.tool(
+    "execute_js",
+    "Execute JavaScript code in the current page and return the result",
+    {
+      script: z.string().describe("JavaScript code to execute"),
+      world: z
+        .enum(["ISOLATED", "MAIN"])
+        .optional()
+        .describe(
+          "Execution world: ISOLATED (extension context, no page CSP) or MAIN (page context, may be blocked by CSP). Default: ISOLATED"
+        ),
+    },
+    async ({ script, world }) => {
+      const tab = await tabReady()
+      const worldValue =
+        world === "MAIN" ? ("MAIN" as const) : ("ISOLATED" as const)
+      if (worldValue === "ISOLATED") {
+        const results = await chrome.scripting.executeScript({
+          target: { tabId: tab.id! },
+          world: "ISOLATED",
+          func: (code: string) => {
+            try {
+              const fn = new Function("return (" + code + ")")
+              return { ok: fn() }
+            } catch (e: any) {
+              return { error: e.message }
+            }
+          },
+          args: [script],
+        })
+        return TextResult(JSON.stringify(results[0]?.result, null, 2))
+      }
+      // MAIN world: inject via script element to bypass CSP eval restriction
+      const results = await chrome.scripting.executeScript({
+        target: { tabId: tab.id! },
+        world: "MAIN",
+        func: (code: string) => {
+          try {
+            const el = document.createElement("script")
+            const id = "__mcp_exec_" + Math.random().toString(36).slice(2)
+            el.textContent = `
+              try {
+                document.currentScript.dataset.${id} = JSON.stringify({ok: (${code})});
+              } catch(e) {
+                document.currentScript.dataset.${id} = JSON.stringify({error: e.message});
+              }
+            `
+            document.head.appendChild(el)
+            const result = JSON.parse(el.dataset[id] || '{"error":"no result"}')
+            el.remove()
+            return result
+          } catch (e: any) {
+            return { error: e.message }
+          }
+        },
+        args: [script],
+      })
+      return TextResult(JSON.stringify(results[0]?.result, null, 2))
+    }
+  )
+
+  server.tool(
+    "scroll",
+    "Scroll the page or scroll an element into view",
+    {
+      direction: z
+        .enum(["up", "down", "left", "right"])
+        .optional()
+        .describe("Scroll direction (default: down)"),
+      amount: z
+        .number()
+        .default(3)
+        .describe("Scroll amount in viewport units"),
+      ref: z
+        .string()
+        .optional()
+        .describe("Element ref to scroll into view (overrides direction/amount)"),
+    },
+    async (params) => {
+      const tab = await tabReady()
+      return msgInvoker.invoke({
+        tabId: tab.id,
+        func: InvokerFunc.CallTools,
+        args: ["scroll", params],
+      })
+    }
+  )
+
+  server.tool(
+    "hover",
+    "Hover over an element on the page",
+    elementSchema,
+    async ({ element, ref }) => {
+      const tab = await tabReady()
+      return msgInvoker.invoke({
+        tabId: tab.id,
+        func: InvokerFunc.CallTools,
+        args: ["hover", { element, ref }],
+      })
+    }
+  )
 }
 
 async function tabReady() {
@@ -131,18 +252,44 @@ async function tabReady() {
       "The current tab is unavailable, Please open or switch to the target tab first"
     )
   }
-  if (tab.status == "complete") {
-    return tab
-  }
-  await new Promise<chrome.tabs.Tab>((r) => {
-    const handleUpdated = (tabId: number, info: chrome.tabs.TabChangeInfo) => {
-      if (tabId == tab.id && info.status === "complete") {
-        chrome.tabs.onUpdated.removeListener(handleUpdated)
-        r(tab)
+  if (tab.status !== "complete") {
+    await new Promise<chrome.tabs.Tab>((r) => {
+      const handleUpdated = (tabId: number, info: chrome.tabs.TabChangeInfo) => {
+        if (tabId == tab.id && info.status === "complete") {
+          chrome.tabs.onUpdated.removeListener(handleUpdated)
+          r(tab)
+        }
       }
+      chrome.tabs.onUpdated.addListener(handleUpdated)
+    })
+  }
+
+  // Ensure content script is injected and ready
+  for (let i = 0; i < 5; i++) {
+    try {
+      await msgInvoker.invoke({
+        tabId: tab.id!,
+        func: InvokerFunc.PingContent,
+        timeout: 500,
+      })
+      break
+    } catch {
+      if (i === 0) {
+        await chrome.scripting.executeScript({
+          files: contentScript.js,
+          target: { tabId: tab.id! },
+        })
+        await chrome.scripting.executeScript({
+          files: contentMainScript.js,
+          target: { tabId: tab.id! },
+          world: "MAIN",
+        })
+      }
+      await new Promise((r) => setTimeout(r, 200 * (i + 1)))
     }
-    chrome.tabs.onUpdated.addListener(handleUpdated)
-  })
+  }
+
+  return tab
 }
 
 export function insiderTools(server: McpServer) {
