@@ -1,5 +1,8 @@
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js"
 
+const SESSION_TTL =
+  parseInt(process.env.SESSION_TTL_MS || "") || 24 * 3600 * 1000
+
 interface Session {
   token: string
   startAt: number
@@ -17,8 +20,24 @@ export class Proxy {
   constructor() {
     this.timer = setInterval(() => {
       this.ping()
-      // TODO: check timeout
+      this.expireSessions()
     }, 1000 * 10)
+  }
+
+  private expireSessions() {
+    const now = Date.now()
+    for (const [token, session] of this.sessions) {
+      if (now - session.lastActiveAt > SESSION_TTL) {
+        const clientTransport = this.transports.get(session.sessionId)
+        const webTransport = this.webTransports.get(session.webSessionId)
+        clientTransport?.onclose?.()
+        webTransport?.onclose?.()
+        this.transports.delete(session.sessionId)
+        this.webTransports.delete(session.webSessionId)
+        this.sessions.delete(token)
+        console.log(`Session expired: ${token.slice(0, 8)}...`)
+      }
+    }
   }
 
   async webConnect(
@@ -113,14 +132,31 @@ export class Proxy {
   }
 
   private proxy(client: SSEServerTransport, web: SSEServerTransport) {
+    // Find session to update lastActiveAt
+    let sessionToken: string | null = null
+    for (const [token, session] of this.sessions) {
+      if (session.sessionId === client.sessionId || session.webSessionId === web.sessionId) {
+        sessionToken = token
+        break
+      }
+    }
+
     client.onmessage = (message) => {
       console.log("to web", message, web.sessionId)
+      if (sessionToken) {
+        const session = this.sessions.get(sessionToken)
+        if (session) session.lastActiveAt = Date.now()
+      }
       web.send(message).catch((err) => {
         console.error("Error sending message to web:", err)
       })
     }
     web.onmessage = (message) => {
       console.log("to client", message, client.sessionId)
+      if (sessionToken) {
+        const session = this.sessions.get(sessionToken)
+        if (session) session.lastActiveAt = Date.now()
+      }
       client.send(message).catch((err) => {
         console.error("Error sending message to client:", err)
       })

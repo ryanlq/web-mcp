@@ -3,8 +3,37 @@ import cors from "cors"
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js"
 import { Proxy } from "./proxy"
 
+const RATE_LIMIT = parseInt(process.env.RATE_LIMIT || "") || 100
+const RATE_WINDOW = 60_000
+
+const rateLimits = new Map<string, { count: number; resetAt: number }>()
+
+// Periodic cleanup of stale rate limit entries
+setInterval(() => {
+  const now = Date.now()
+  for (const [key, entry] of rateLimits) {
+    if (now > entry.resetAt) rateLimits.delete(key)
+  }
+}, RATE_WINDOW)
+
 const app = express()
 app.use(cors())
+
+app.use((req, res, next) => {
+  const key = req.ip || "unknown"
+  const now = Date.now()
+  const entry = rateLimits.get(key)
+  if (!entry || now > entry.resetAt) {
+    rateLimits.set(key, { count: 1, resetAt: now + RATE_WINDOW })
+    return next()
+  }
+  if (entry.count >= RATE_LIMIT) {
+    res.status(429).end("Rate limit exceeded")
+    return
+  }
+  entry.count++
+  next()
+})
 
 const proxy = new Proxy()
 
