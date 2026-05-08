@@ -83,3 +83,50 @@ export async function hover(ref: string) {
   el.dispatchEvent(new MouseEvent("mouseenter", { bubbles: true }))
   return TextResult("done")
 }
+
+export interface ScrapeField {
+  key: string
+  selector: string
+  type: "text" | "html" | "attribute" | "list"
+  attribute?: string
+  fields?: ScrapeField[]
+}
+
+function extractValue(el: Element | null, field: ScrapeField): any {
+  if (!el) return null
+  switch (field.type) {
+    case "text":
+      return el.textContent?.trim() || ""
+    case "html":
+      return el.innerHTML
+    case "attribute":
+      return field.attribute ? el.getAttribute(field.attribute) : null
+    default:
+      return el.textContent?.trim() || ""
+  }
+}
+
+export async function scrape(fields: ScrapeField[]) {
+  const result: Record<string, any> = {}
+
+  for (const field of fields) {
+    const els = document.querySelectorAll(field.selector)
+
+    if (field.type === "list") {
+      result[field.key] = Array.from(els).map((el) => {
+        const item: Record<string, any> = {}
+        for (const sub of field.fields || []) {
+          const subEl = el.matches(sub.selector) ? el : el.querySelector(sub.selector)
+          item[sub.key] = extractValue(subEl, sub)
+        }
+        return item
+      })
+    } else if (els.length > 1) {
+      result[field.key] = Array.from(els).map((el) => extractValue(el, field))
+    } else {
+      result[field.key] = extractValue(els[0], field)
+    }
+  }
+
+  return TextResult(JSON.stringify(result, null, 2))
+}

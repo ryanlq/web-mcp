@@ -241,6 +241,47 @@ export function registerPageTools(server: McpServer) {
       })
     }
   )
+
+  const scrapeFieldSchema: z.ZodTypeAny = z.lazy(() =>
+    z.object({
+      key: z.string().describe("Output field name"),
+      selector: z
+        .string()
+        .describe("CSS selector to locate the element(s)"),
+      type: z
+        .enum(["text", "html", "attribute", "list"])
+        .default("text")
+        .describe(
+          "text=textContent, html=innerHTML, attribute=specific attr, list=repeated items with sub-fields"
+        ),
+      attribute: z
+        .string()
+        .optional()
+        .describe("Attribute name when type=attribute (e.g. href, src)"),
+      fields: z
+        .array(scrapeFieldSchema)
+        .optional()
+        .describe("Sub-fields when type=list"),
+    })
+  )
+
+  server.tool(
+    "scrape",
+    "Extract structured data from the current page using CSS selectors",
+    {
+      fields: z
+        .array(scrapeFieldSchema)
+        .describe("Array of field definitions describing what to extract"),
+    },
+    async ({ fields }) => {
+      const tab = await tabReady()
+      return msgInvoker.invoke({
+        tabId: tab.id,
+        func: InvokerFunc.CallTools,
+        args: ["scrape", { fields: JSON.stringify(fields) }],
+      })
+    }
+  )
 }
 
 async function tabReady() {
