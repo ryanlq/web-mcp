@@ -4,6 +4,7 @@ import { msgInvoker } from "@/utils/invoker"
 import { contentMainScript, contentScript } from "@/manifest"
 import { EMPTY, finalize, interval, switchMap, tap } from "rxjs"
 import { formatDuration } from "@/utils/util"
+import { runCrawlTask } from "./tools"
 
 const __DEV__ = process.env.NODE_ENV == "development"
 
@@ -55,7 +56,7 @@ session.connection$
   )
   .subscribe()
 
-function handleMessage(message: any, sender: chrome.runtime.MessageSender) {
+function handleMessage(message: any, sender: chrome.runtime.MessageSender, sendResponse: (response?: any) => void) {
   console.log("[bg]: ", message.type, message)
   switch (message.type) {
     case msgInvoker.invokeMsgType:
@@ -64,6 +65,9 @@ function handleMessage(message: any, sender: chrome.runtime.MessageSender) {
     case msgInvoker.resMsgType:
       msgInvoker.handleResMsg(message)
       break
+    case "run_task":
+      runCrawlTask(message.taskName).then(sendResponse).catch((e) => sendResponse({ error: e.message }))
+      return true // keep channel open for async response
   }
 }
 

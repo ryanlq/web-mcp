@@ -36,6 +36,7 @@ export default function RuleForm({
   onCancel: () => void
 }) {
   const [rule, setRule] = useState<ScrapeRule>(initial || defaultRule())
+  const [testUrl, setTestUrl] = useState("")
   const [testResult, setTestResult] = useState<string | null>(null)
   const [testing, setTesting] = useState(false)
 
@@ -48,58 +49,141 @@ export default function RuleForm({
     onSave({ ...rule, updatedAt: Date.now() })
   }
 
+  const scrapeFn = (fieldsJson: string) => {
+    const fields = JSON.parse(fieldsJson)
+    const result: Record<string, any> = {}
+    for (const field of fields) {
+      const els = document.querySelectorAll(field.selector)
+      if (field.type === "list") {
+        result[field.key] = Array.from(els).map((el) => {
+          const item: Record<string, any> = {}
+          for (const sub of field.fields || []) {
+            const subEl = el.matches(sub.selector) ? el : el.querySelector(sub.selector)
+            if (!subEl) { item[sub.key] = null; continue }
+            if (sub.type === "attribute") item[sub.key] = subEl.getAttribute(sub.attribute || "")
+            else item[sub.key] = subEl.textContent?.trim() || ""
+          }
+          return item
+        })
+      } else if (els.length > 1) {
+        result[field.key] = Array.from(els).map((el) => {
+          if (field.type === "attribute") return el.getAttribute(field.attribute || "")
+          if (field.type === "html") return el.innerHTML
+          return el.textContent?.trim() || ""
+        })
+      } else {
+        const el = els[0]
+        if (!el) { result[field.key] = null; continue }
+        if (field.type === "attribute") result[field.key] = el.getAttribute(field.attribute || "")
+        else if (field.type === "html") result[field.key] = el.innerHTML
+        else result[field.key] = el.textContent?.trim() || ""
+      }
+    }
+    return result
+  }
+
+  const waitTabLoad = (tabId: number) => new Promise<void>((resolve) => {
+    const handler = (id: number, info: chrome.tabs.TabChangeInfo) => {
+      if (id === tabId && info.status === "complete") {
+        chrome.tabs.onUpdated.removeListener(handler)
+        resolve()
+      }
+    }
+    chrome.tabs.onUpdated.addListener(handler)
+  })
+
   const handleTest = async () => {
     setTesting(true)
     setTestResult(null)
     try {
-      const tabs = await chrome.tabs.query({})
-      const tab = tabs.find((t) => (t.url || "").startsWith("http"))
-      if (!tab?.id) {
-        setTestResult("Error: No HTTP tab found. Please open a target webpage first.")
+      let tabId: number | undefined
+
+      if (testUrl) {
+        const tabs = await chrome.tabs.query({})
+        const existing = tabs.find((t) => t.url === testUrl || t.pendingUrl === testUrl)
+        if (existing?.id) {
+          tabId = existing.id
+        } else {
+          const newTab = await chrome.tabs.create({ url: testUrl, active: false })
+          tabId = newTab.id
+          await waitTabLoad(tabId)
+        }
+      } else {
+        const tabs = await chrome.tabs.query({})
+        const tab = tabs.find((t) => (t.url || "").startsWith("http"))
+        if (!tab?.id) {
+          setTestResult("Error: Enter a test URL above, or open a target webpage first.")
+          setTesting(false)
+          return
+        }
+        tabId = tab.id
+      }
+
+      // 1. Scrape listing page
+      const listResults = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: "ISOLATED",
+        func: scrapeFn,
+        args: [JSON.stringify(rule.fields)],
+      })
+      const listData = listResults[0]?.result
+      if (!listData) {
+        setTestResult("Error: No data extracted from listing page")
         setTesting(false)
         return
       }
 
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "ISOLATED",
-        func: (fieldsJson: string) => {
-          const fields = JSON.parse(fieldsJson)
-          const result: Record<string, any> = {}
-          for (const field of fields) {
-            const els = document.querySelectorAll(field.selector)
-            if (field.type === "list") {
-              result[field.key] = Array.from(els).map((el) => {
-                const item: Record<string, any> = {}
-                for (const sub of field.fields || []) {
-                  const subEl = el.matches(sub.selector) ? el : el.querySelector(sub.selector)
-                  if (!subEl) { item[sub.key] = null; continue }
-                  if (sub.type === "attribute") item[sub.key] = subEl.getAttribute(sub.attribute || "")
-                  else item[sub.key] = subEl.textContent?.trim() || ""
-                }
-                return item
-              })
-            } else if (els.length > 1) {
-              result[field.key] = Array.from(els).map((el) => {
-                if (field.type === "attribute") return el.getAttribute(field.attribute || "")
-                if (field.type === "html") return el.innerHTML
-                return el.textContent?.trim() || ""
-              })
-            } else {
-              const el = els[0]
-              if (!el) { result[field.key] = null; continue }
-              if (field.type === "attribute") result[field.key] = el.getAttribute(field.attribute || "")
-              else if (field.type === "html") result[field.key] = el.innerHTML
-              else result[field.key] = el.textContent?.trim() || ""
-            }
-          }
-          return result
-        },
-        args: [JSON.stringify(rule.fields)],
-      })
+      // 2. If detail extraction configured, test first detail page
+      if (rule.detailLinkSelector && rule.detailFields?.length) {
+        const linkResults = await chrome.scripting.executeScript({
+          target: { tabId },
+          world: "ISOLATED",
+          func: (selector: string) => {
+            const el = document.querySelector(selector)
+            if (!el) return null
+            const a = el.closest("a") || el.querySelector("a")
+            return a ? a.getAttribute("href") : null
+          },
+          args: [rule.detailLinkSelector],
+        })
+        const detailUrl = linkResults[0]?.result as string | null
+        if (!detailUrl) {
+          setTestResult(JSON.stringify({
+            _warning: "Detail link not found, showing listing page only",
+            ...listData,
+          }, null, 2))
+          setTesting(false)
+          return
+        }
 
-      const data = results[0]?.result
-      setTestResult(JSON.stringify(data, null, 2))
+        // Resolve relative URLs
+        const tab = await chrome.tabs.get(tabId)
+        const fullUrl = detailUrl.startsWith("http")
+          ? detailUrl
+          : new URL(detailUrl, tab.url).href
+
+        const detailTab = await chrome.tabs.create({ url: fullUrl, active: false })
+        await waitTabLoad(detailTab.id!)
+
+        const detailResults = await chrome.scripting.executeScript({
+          target: { tabId: detailTab.id! },
+          world: "ISOLATED",
+          func: scrapeFn,
+          args: [JSON.stringify(rule.detailFields)],
+        })
+        const detailData = detailResults[0]?.result
+        await chrome.tabs.remove(detailTab.id!)
+
+        // Merge detail into first list item
+        const listItems = Object.values(listData).find((v) => Array.isArray(v)) as any[] | undefined
+        if (listItems?.length && detailData) {
+          Object.assign(listItems[0], { _detail: detailData })
+        }
+
+        setTestResult(JSON.stringify(listData, null, 2))
+      } else {
+        setTestResult(JSON.stringify(listData, null, 2))
+      }
     } catch (e: any) {
       setTestResult(`Error: ${e.message}`)
     } finally {
@@ -194,6 +278,29 @@ export default function RuleForm({
         </div>
       </details>
 
+      <div className="border rounded-md p-3 space-y-2">
+        <label className="text-sm font-medium">Test URL</label>
+        <div className="flex gap-2">
+          <Input
+            value={testUrl}
+            onChange={(e) => setTestUrl(e.target.value)}
+            placeholder="https://stock.stockstar.com/SS2026050900004434.shtml"
+            className="flex-1"
+          />
+          <Button
+            variant="outline"
+            onClick={handleTest}
+            disabled={testing || !rule.fields.length}
+          >
+            <Play className="size-3" />
+            {testing ? "Testing..." : "Test"}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Enter the actual page URL to test your rule against. Leave empty to use any open tab.
+        </p>
+      </div>
+
       {testResult && (
         <div className="border rounded-md p-3 bg-muted">
           <div className="flex items-center justify-between mb-1">
@@ -209,14 +316,6 @@ export default function RuleForm({
       )}
 
       <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          onClick={handleTest}
-          disabled={testing || !rule.fields.length}
-        >
-          <Play className="size-3" />
-          {testing ? "Testing..." : "Test"}
-        </Button>
         <div className="flex-1" />
         <Button variant="ghost" onClick={onCancel}>
           Cancel

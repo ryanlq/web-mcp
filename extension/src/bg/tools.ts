@@ -18,6 +18,14 @@ interface ScrapeRule {
   updatedAt: number
 }
 
+interface CrawlTask {
+  name: string
+  ruleName: string
+  url: string
+  createdAt: number
+  updatedAt: number
+}
+
 function matchUrl(url: string, pattern: string): boolean {
   try {
     return new URLPattern(pattern).test(url)
@@ -445,8 +453,12 @@ export function registerCrawlTools(server: McpServer) {
         .string()
         .optional()
         .describe("Use a saved rule by name (overrides fields)"),
+      url: z
+        .string()
+        .optional()
+        .describe("Target URL to crawl (opens new background tab). If omitted, uses current active tab."),
     },
-    async ({ fields, nextPageSelector, maxPages, detailLinkSelector, detailFields, rule }) => {
+    async ({ fields, nextPageSelector, maxPages, detailLinkSelector, detailFields, rule, url }) => {
       let resolvedFields = fields
       let resolvedNextPageSelector = nextPageSelector
       let resolvedDetailLinkSelector = detailLinkSelector
@@ -464,129 +476,195 @@ export function registerCrawlTools(server: McpServer) {
         resolvedMaxPages = found.maxPages || maxPages
       }
 
-      if (!resolvedFields?.length || !resolvedNextPageSelector) {
+      if (!resolvedFields?.length) {
         return TextResult("Error: provide fields and nextPageSelector (or use rule)")
       }
 
-      const tab = await tabReady()
-      const originalTabId = tab.id!
-      const allResults: any[] = []
-      let pageCount = 0
-
-      for (let page = 0; page < resolvedMaxPages!; page++) {
-        pageCount++
-
-        // 1. Scrape current page
-        const scrapeResult = await msgInvoker.invoke({
-          tabId: originalTabId,
-          func: InvokerFunc.CallTools,
-          args: ["scrape", { fields: JSON.stringify(resolvedFields) }],
-        })
-        let pageData: any
-        try {
-          pageData = JSON.parse(scrapeResult.content?.[0]?.text || "{}")
-        } catch {
-          return TextResult(`Error parsing scrape result on page ${page + 1}: ${scrapeResult}`)
-        }
-
-        // 2. Detail extraction if configured
-        if (resolvedDetailLinkSelector && resolvedDetailFields) {
-          const linksResult = await msgInvoker.invoke({
-            tabId: originalTabId,
-            func: InvokerFunc.CallTools,
-            args: [
-              "scrape",
-              {
-                fields: JSON.stringify([
-                  {
-                    key: "_links",
-                    selector: resolvedDetailLinkSelector,
-                    type: "attribute",
-                    attribute: "href",
-                  },
-                ]),
-              },
-            ],
-          })
-          try {
-            const linkData = JSON.parse(linksResult.content?.[0]?.text || "{}")
-            const urls: string[] = Array.isArray(linkData._links)
-              ? linkData._links.filter(Boolean)
-              : linkData._links
-                ? [linkData._links]
-                : []
-
-            // Find the list array in pageData
-            let listItems: any[] = []
-            for (const key of Object.keys(pageData)) {
-              if (Array.isArray(pageData[key])) {
-                listItems = pageData[key]
-                break
-              }
-            }
-
-            for (let i = 0; i < urls.length; i++) {
-              const url = urls[i]
-              if (!url) continue
-              try {
-                const newTab = await chrome.tabs.create({ url, active: false })
-                await tabReadyForTab(newTab.id!)
-                const detail = await msgInvoker.invoke({
-                  tabId: newTab.id!,
-                  func: InvokerFunc.CallTools,
-                  args: ["scrape", { fields: JSON.stringify(resolvedDetailFields) }],
-                })
-                try {
-                  const detailData = JSON.parse(detail.content?.[0]?.text || "{}")
-                  if (listItems[i]) {
-                    Object.assign(listItems[i], detailData)
-                  }
-                } catch { /* skip detail parse error */ }
-                await chrome.tabs.remove(newTab.id!)
-              } catch (e: any) {
-                // Skip failed detail page
-              }
-            }
-          } catch { /* skip detail extraction error */ }
-        }
-
-        // 3. Collect results
-        for (const key of Object.keys(pageData)) {
-          if (Array.isArray(pageData[key])) {
-            allResults.push(...pageData[key])
-          }
-        }
-        if (allResults.length === 0 && !Array.isArray(pageData)) {
-          allResults.push(pageData)
-        }
-
-        // 4. Try next page
-        const nextResult = await msgInvoker.invoke({
-          tabId: originalTabId,
-          func: InvokerFunc.CallTools,
-          args: ["scrape_next_page", { selector: resolvedNextPageSelector }],
-        })
-        try {
-          const { hasNext } = JSON.parse(nextResult.content?.[0]?.text || "{}")
-          if (!hasNext) break
-        } catch {
-          break
-        }
-
-        // 5. Wait for page navigation
-        await new Promise((r) => setTimeout(r, 2000))
-        await tabReadyForTab(originalTabId)
-      }
-
-      return TextResult(
-        JSON.stringify(
-          { totalItems: allResults.length, pages: pageCount, data: allResults },
-          null,
-          2
-        )
-      )
+      return executeCrawl({
+        url: url || undefined,
+        fields: resolvedFields,
+        nextPageSelector: resolvedNextPageSelector,
+        maxPages: resolvedMaxPages,
+        detailLinkSelector: resolvedDetailLinkSelector,
+        detailFields: resolvedDetailFields,
+      })
     }
   )
+}
+
+async function executeCrawl(opts: {
+  url?: string
+  fields: any[]
+  nextPageSelector?: string
+  maxPages?: number
+  detailLinkSelector?: string
+  detailFields?: any[]
+}): Promise<any> {
+  let ownTab = false
+  let tabId: number
+
+  if (opts.url) {
+    const tab = await chrome.tabs.create({ url: opts.url, active: false })
+    tabId = tab.id!
+    ownTab = true
+    await tabReadyForTab(tabId)
+  } else {
+    const tab = await tabReady()
+    tabId = tab.id!
+  }
+
+  try {
+    const allResults: any[] = []
+    let pageCount = 0
+    const maxPages = opts.maxPages || 1
+
+    for (let page = 0; page < maxPages; page++) {
+      pageCount++
+
+      // 1. Scrape current page
+      const scrapeResult = await msgInvoker.invoke({
+        tabId,
+        func: InvokerFunc.CallTools,
+        args: ["scrape", { fields: JSON.stringify(opts.fields) }],
+      })
+      let pageData: any
+      try {
+        pageData = JSON.parse(scrapeResult.content?.[0]?.text || "{}")
+      } catch {
+        return { error: `Error parsing scrape result on page ${page + 1}` }
+      }
+
+      // 2. Detail extraction if configured
+      if (opts.detailLinkSelector && opts.detailFields) {
+        const linksResult = await msgInvoker.invoke({
+          tabId,
+          func: InvokerFunc.CallTools,
+          args: [
+            "scrape",
+            {
+              fields: JSON.stringify([
+                {
+                  key: "_links",
+                  selector: opts.detailLinkSelector,
+                  type: "attribute",
+                  attribute: "href",
+                },
+              ]),
+            },
+          ],
+        })
+        try {
+          const linkData = JSON.parse(linksResult.content?.[0]?.text || "{}")
+          const urls: string[] = Array.isArray(linkData._links)
+            ? linkData._links.filter(Boolean)
+            : linkData._links
+              ? [linkData._links]
+              : []
+
+          let listItems: any[] = []
+          for (const key of Object.keys(pageData)) {
+            if (Array.isArray(pageData[key])) {
+              listItems = pageData[key]
+              break
+            }
+          }
+
+          for (let i = 0; i < urls.length; i++) {
+            const url = urls[i]
+            if (!url) continue
+            try {
+              const newTab = await chrome.tabs.create({ url, active: false })
+              await tabReadyForTab(newTab.id!)
+              const detail = await msgInvoker.invoke({
+                tabId: newTab.id!,
+                func: InvokerFunc.CallTools,
+                args: ["scrape", { fields: JSON.stringify(opts.detailFields) }],
+              })
+              try {
+                const detailData = JSON.parse(detail.content?.[0]?.text || "{}")
+                if (listItems[i]) {
+                  Object.assign(listItems[i], detailData)
+                }
+              } catch { /* skip detail parse error */ }
+              await chrome.tabs.remove(newTab.id!)
+            } catch { /* skip failed detail page */ }
+          }
+        } catch { /* skip detail extraction error */ }
+      }
+
+      // 3. Collect results
+      for (const key of Object.keys(pageData)) {
+        if (Array.isArray(pageData[key])) {
+          allResults.push(...pageData[key])
+        }
+      }
+      if (allResults.length === 0 && !Array.isArray(pageData)) {
+        allResults.push(pageData)
+      }
+
+      // 4. Try next page (only if nextPageSelector provided)
+      if (!opts.nextPageSelector) break
+      const nextResult = await msgInvoker.invoke({
+        tabId,
+        func: InvokerFunc.CallTools,
+        args: ["scrape_next_page", { selector: opts.nextPageSelector }],
+      })
+      try {
+        const { hasNext } = JSON.parse(nextResult.content?.[0]?.text || "{}")
+        if (!hasNext) break
+      } catch {
+        break
+      }
+      await new Promise((r) => setTimeout(r, 2000))
+      await tabReadyForTab(tabId)
+    }
+
+    return { totalItems: allResults.length, pages: pageCount, data: allResults }
+  } finally {
+    if (ownTab) {
+      try { await chrome.tabs.remove(tabId) } catch { /* tab already closed */ }
+    }
+  }
+}
+
+export async function runCrawlTask(taskName: string) {
+  const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
+  const task = crawl_tasks.find((t) => t.name === taskName)
+  if (!task) return { error: `Task "${taskName}" not found` }
+
+  const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
+  const rule = scrape_rules.find((r) => r.name === task.ruleName)
+  if (!rule) return { error: `Rule "${task.ruleName}" not found` }
+
+  return executeCrawl({
+    url: task.url,
+    fields: rule.fields,
+    nextPageSelector: rule.nextPageSelector,
+    maxPages: rule.maxPages || 1,
+    detailLinkSelector: rule.detailLinkSelector,
+    detailFields: rule.detailFields,
+  })
+}
+
+export function registerCrawlTaskTools(server: McpServer) {
+  server.tool(
+    "crawl_task_run",
+    "Run a saved crawl task by name",
+    { task: z.string().describe("Task name to run") },
+    async ({ task }) => {
+      const result = await runCrawlTask(task)
+      return TextResult(JSON.stringify(result, null, 2))
+    }
+  )
+
+  server.tool("crawl_task_list", "List all saved crawl tasks", async () => {
+    const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
+    if (!crawl_tasks.length) return TextResult("No tasks saved")
+    const text = crawl_tasks
+      .map((t) => `Name: ${t.name}\nRule: ${t.ruleName}\nURL: ${t.url}`)
+      .join("\n\n")
+    return TextResult(text)
+  })
 }
 
 export function registerScrapeRuleTools(server: McpServer) {

@@ -30,7 +30,7 @@ export function FieldEditor({
     if (patch.type === "list" && !next[index].fields) {
       next[index].fields = [defaultField()]
     }
-    if (patch.type !== "attribute") {
+    if (next[index].type !== "attribute") {
       delete next[index].attribute
     }
     onChange(next)

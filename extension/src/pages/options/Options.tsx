@@ -1,11 +1,12 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Plus, HelpCircle, Wand2 } from "lucide-react"
+import { Plus, HelpCircle, Wand2, Trash2, Pencil } from "lucide-react"
 import useStorage from "@/hooks/useStorage"
 import { getLocal, setLocal } from "@/utils/ext"
 import RuleList from "@/components/rules/RuleList"
 import RuleForm from "@/components/rules/RuleForm"
 import ImportExport from "@/components/rules/ImportExport"
+import TaskForm, { type CrawlTask } from "@/components/tasks/TaskForm"
 import type { ScrapeRule } from "@/components/rules/RuleForm"
 
 const presetRules: ScrapeRule[] = [
@@ -141,12 +142,14 @@ export default function Options() {
   const { scrape_rules = [] } = useStorage<{ scrape_rules: ScrapeRule[] }>({
     scrape_rules: [],
   })
-  const [editing, setEditing] = useState<ScrapeRule | null | "new">(null)
+  const { crawl_tasks = [] } = useStorage<{ crawl_tasks: CrawlTask[] }>({
+    crawl_tasks: [],
+  })
+  const [editingRule, setEditingRule] = useState<ScrapeRule | null | "new">(null)
+  const [editingTask, setEditingTask] = useState<CrawlTask | null | "new">(null)
 
-  const handleSave = async (rule: ScrapeRule) => {
-    const { scrape_rules: existing = [] } = await getLocal<{
-      scrape_rules: ScrapeRule[]
-    }>("scrape_rules")
+  const handleSaveRule = async (rule: ScrapeRule) => {
+    const { scrape_rules: existing = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
     const idx = existing.findIndex((r) => r.name === rule.name)
     if (idx >= 0) {
       rule.createdAt = existing[idx].createdAt
@@ -155,50 +158,118 @@ export default function Options() {
       existing.push(rule)
     }
     await setLocal({ scrape_rules: existing })
-    setEditing(null)
+    setEditingRule(null)
   }
 
-  const handleDelete = async (name: string) => {
-    const { scrape_rules: existing = [] } = await getLocal<{
-      scrape_rules: ScrapeRule[]
-    }>("scrape_rules")
+  const handleDeleteRule = async (name: string) => {
+    const { scrape_rules: existing = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
     await setLocal({ scrape_rules: existing.filter((r) => r.name !== name) })
   }
 
-  if (editing !== null) {
+  const handleSaveTask = async (task: CrawlTask) => {
+    const { crawl_tasks: existing = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
+    const idx = existing.findIndex((t) => t.name === task.name)
+    if (idx >= 0) {
+      task.createdAt = existing[idx].createdAt
+      existing[idx] = task
+    } else {
+      existing.push(task)
+    }
+    await setLocal({ crawl_tasks: existing })
+    setEditingTask(null)
+  }
+
+  const handleDeleteTask = async (name: string) => {
+    const { crawl_tasks: existing = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
+    await setLocal({ crawl_tasks: existing.filter((t) => t.name !== name) })
+  }
+
+  if (editingRule !== null) {
     return (
       <div className="max-w-2xl mx-auto p-6">
         <RuleForm
-          rule={editing === "new" ? undefined : editing}
-          onSave={handleSave}
-          onCancel={() => setEditing(null)}
+          rule={editingRule === "new" ? undefined : editingRule}
+          onSave={handleSaveRule}
+          onCancel={() => setEditingRule(null)}
+        />
+      </div>
+    )
+  }
+
+  if (editingTask !== null) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <TaskForm
+          task={editingTask === "new" ? undefined : editingTask}
+          rules={scrape_rules}
+          onSave={handleSaveTask}
+          onCancel={() => setEditingTask(null)}
         />
       </div>
     )
   }
 
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Scrape Rules</h1>
-        <div className="flex items-center gap-2">
-          <ImportExport onImported={() => setEditing(null)} />
-          <Button variant="outline" size="sm" onClick={loadPresets}>
-            <Wand2 className="size-3" />
-            Presets
-          </Button>
-          <Button size="sm" onClick={() => setEditing("new")}>
+    <div className="max-w-2xl mx-auto p-6 space-y-6">
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-semibold">Scrape Rules</h1>
+          <div className="flex items-center gap-2">
+            <ImportExport onImported={() => setEditingRule(null)} />
+            <Button variant="outline" size="sm" onClick={loadPresets}>
+              <Wand2 className="size-3" />
+              Presets
+            </Button>
+            <Button size="sm" onClick={() => setEditingRule("new")}>
+              <Plus className="size-3" />
+              Add Rule
+            </Button>
+          </div>
+        </div>
+        <HelpPanel />
+        <RuleList
+          rules={scrape_rules}
+          onEdit={(rule) => setEditingRule(rule)}
+          onDelete={handleDeleteRule}
+        />
+      </div>
+
+      <div className="border-t pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-semibold">Crawl Tasks</h1>
+          <Button size="sm" onClick={() => setEditingTask("new")}>
             <Plus className="size-3" />
-            Add Rule
+            Add Task
           </Button>
         </div>
+        <p className="text-sm text-muted-foreground mb-3">
+          Tasks combine a rule with a target URL. Run them from the popup or via MCP with one click.
+        </p>
+        {crawl_tasks.length === 0 && (
+          <p className="text-sm text-muted-foreground">No tasks yet. Create one to get started.</p>
+        )}
+        <div className="space-y-2">
+          {crawl_tasks.map((task) => (
+            <div
+              key={task.name}
+              className="flex items-center gap-3 border rounded-md p-3"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-sm">{task.name}</div>
+                <div className="text-xs text-muted-foreground truncate">
+                  Rule: {task.ruleName} | {task.url}
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setEditingTask(task)}>
+                <Pencil className="size-3" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => handleDeleteTask(task.name)}>
+                <Trash2 className="size-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
       </div>
-      <HelpPanel />
-      <RuleList
-        rules={scrape_rules}
-        onEdit={(rule) => setEditing(rule)}
-        onDelete={handleDelete}
-      />
     </div>
   )
 }
