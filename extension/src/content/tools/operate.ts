@@ -131,6 +131,25 @@ export async function scrape(fields: ScrapeField[]) {
   return TextResult(JSON.stringify(result, null, 2))
 }
 
+export async function wait_for(selector: string, text?: string, timeout: number = 30) {
+  const deadline = Date.now() + timeout * 1000
+  while (Date.now() < deadline) {
+    const els = document.querySelectorAll(selector)
+    if (els.length > 0) {
+      if (!text) return TextResult(`Found ${els.length} element(s)`)
+      for (const el of els) {
+        if (el.textContent?.includes(text)) {
+          return TextResult(`Found element with text "${text}"`)
+        }
+      }
+    }
+    await new Promise((r) => setTimeout(r, 500))
+  }
+  return TextResult(
+    `Timeout: "${selector}"${text ? ` with text "${text}"` : ""} not found within ${timeout}s`
+  )
+}
+
 export async function scrape_next_page(selector: string) {
   const nextBtn = document.querySelector(selector) as HTMLElement | null
   if (!nextBtn) return TextResult(JSON.stringify({ hasNext: false }))

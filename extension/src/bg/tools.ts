@@ -82,6 +82,49 @@ export function registerBrowserTools(server: McpServer) {
       return ImageResult(base64, `image/${format || "png"}`)
     }
   )
+
+  server.tool(
+    "export_data",
+    "Export data as a file download (JSON or CSV)",
+    {
+      data: z.string().describe("Data to export (JSON string)"),
+      filename: z.string().describe("Output filename (e.g. results.json, data.csv)"),
+      format: z.enum(["json", "csv"]).default("json").describe("Export format"),
+    },
+    async ({ data, filename, format }) => {
+      let content: string
+      let mimeType: string
+
+      if (format === "csv") {
+        const parsed = JSON.parse(data)
+        if (!Array.isArray(parsed)) return TextResult("Error: CSV export requires a JSON array")
+        if (parsed.length === 0) return TextResult("Error: empty array, nothing to export")
+        const keys = Object.keys(parsed[0])
+        const rows = [keys.join(",")]
+        for (const item of parsed) {
+          rows.push(
+            keys
+              .map((k) => {
+                const val = String(item[k] ?? "")
+                return val.includes(",") || val.includes('"')
+                  ? `"${val.replace(/"/g, '""')}"`
+                  : val
+              })
+              .join(",")
+          )
+        }
+        content = rows.join("\n")
+        mimeType = "text/csv"
+      } else {
+        content = data
+        mimeType = "application/json"
+      }
+
+      const dataUrl = `data:${mimeType};charset=utf-8,${encodeURIComponent(content)}`
+      await chrome.downloads.download({ url: dataUrl, filename })
+      return TextResult(`Exported ${filename}`)
+    }
+  )
 }
 
 export function registerPageTools(server: McpServer) {
@@ -259,6 +302,33 @@ export function registerPageTools(server: McpServer) {
         tabId: tab.id,
         func: InvokerFunc.CallTools,
         args: ["hover", { element, ref }],
+      })
+    }
+  )
+
+  server.tool(
+    "wait_for",
+    "Wait for an element matching a CSS selector to appear on the page",
+    {
+      selector: z.string().describe("CSS selector to wait for"),
+      text: z
+        .string()
+        .optional()
+        .describe("Wait for element containing this text"),
+      timeout: z
+        .number()
+        .default(30)
+        .describe("Maximum wait time in seconds (default: 30)"),
+    },
+    async ({ selector, text, timeout }) => {
+      const tab = await tabReady()
+      return msgInvoker.invoke({
+        tabId: tab.id,
+        func: InvokerFunc.CallTools,
+        args: [
+          "wait_for",
+          { selector, text: text || "", timeout: String(timeout) },
+        ],
       })
     }
   )
