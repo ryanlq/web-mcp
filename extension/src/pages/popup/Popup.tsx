@@ -57,6 +57,14 @@ export default function Popup() {
           <span>{t("onlineInspector")}</span>
           <ArrowUpRight className="size-3" />
         </a>
+        <a
+          className="inline-flex items-center gap-1 text-xs underline hover:text-orange-500"
+          href="options.html"
+          target="_blank"
+        >
+          <span>Scrape Rules</span>
+          <ArrowUpRight className="size-3" />
+        </a>
       </div>
       <div className="pt-2 text-xs">
         <ol className="list-decimal ms-4 space-y-2">

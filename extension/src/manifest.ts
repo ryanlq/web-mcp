@@ -80,7 +80,7 @@ export default /* @__PURE__ */ (() => ({
     //   run_at: "document_start",
     // },
   ],
-  // options_page: "options.html",
+  options_page: "options.html",
   // side_panel: {
   //   default_path: defaultSidebarPath,
   // },

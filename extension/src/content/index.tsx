@@ -37,9 +37,3 @@ if (!globalThis.__content_run_at_) {
   msgInvoker.listen()
   run()
 }
-
-if (process.env.NODE_ENV === "development") {
-  chrome.runtime.onMessage.addListener((message, sender) => {
-    console.log("[content]: ", message, sender)
-  })
-}
