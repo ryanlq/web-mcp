@@ -130,3 +130,10 @@ export async function scrape(fields: ScrapeField[]) {
 
   return TextResult(JSON.stringify(result, null, 2))
 }
+
+export async function scrape_next_page(selector: string) {
+  const nextBtn = document.querySelector(selector) as HTMLElement | null
+  if (!nextBtn) return TextResult(JSON.stringify({ hasNext: false }))
+  nextBtn.click()
+  return TextResult(JSON.stringify({ hasNext: true }))
+}

@@ -1,5 +1,5 @@
 import { TextResult } from "@/utils/tools"
-import { page_snapshot, click, dblclick, type, press_key, scroll, hover, scrape } from "./operate"
+import { page_snapshot, click, dblclick, type, press_key, scroll, hover, scrape, scrape_next_page } from "./operate"
 
 export const tools = {
   page_snapshot,
@@ -10,6 +10,7 @@ export const tools = {
   scroll,
   hover,
   scrape,
+  scrape_next_page,
 }
 
 export async function handleToolCall(
@@ -34,6 +35,8 @@ export async function handleToolCall(
         return await tools.hover(params.ref)
       case "scrape":
         return await tools.scrape(JSON.parse(params.fields))
+      case "scrape_next_page":
+        return await tools.scrape_next_page(params.selector)
     }
   } catch (err) {
     return TextResult(`Error: ${err?.message || err}`)

@@ -10,6 +10,10 @@ interface ScrapeRule {
   name: string
   urlPattern: string
   fields: any[]
+  nextPageSelector?: string
+  detailLinkSelector?: string
+  detailFields?: any[]
+  maxPages?: number
   createdAt: number
   updatedAt: number
 }
@@ -330,6 +334,191 @@ export function registerPageTools(server: McpServer) {
   )
 }
 
+export function registerCrawlTools(server: McpServer) {
+  const crawlFieldSchema: z.ZodTypeAny = z.lazy(() =>
+    z.object({
+      key: z.string().describe("Output field name"),
+      selector: z.string().describe("CSS selector"),
+      type: z
+        .enum(["text", "html", "attribute", "list"])
+        .default("text"),
+      attribute: z.string().optional(),
+      fields: z.array(crawlFieldSchema).optional(),
+    })
+  )
+
+  server.tool(
+    "scrape_crawl",
+    "Crawl multiple pages with pagination and optional sub-page detail extraction",
+    {
+      fields: z
+        .array(crawlFieldSchema)
+        .optional()
+        .describe("Field definitions for list page extraction"),
+      nextPageSelector: z
+        .string()
+        .optional()
+        .describe("CSS selector for the 'next page' button/link"),
+      maxPages: z
+        .number()
+        .default(5)
+        .describe("Maximum pages to crawl"),
+      detailLinkSelector: z
+        .string()
+        .optional()
+        .describe("Selector for detail page link within each list item"),
+      detailFields: z
+        .array(crawlFieldSchema)
+        .optional()
+        .describe("Fields to extract from detail pages"),
+      rule: z
+        .string()
+        .optional()
+        .describe("Use a saved rule by name (overrides fields)"),
+    },
+    async ({ fields, nextPageSelector, maxPages, detailLinkSelector, detailFields, rule }) => {
+      let resolvedFields = fields
+      let resolvedNextPageSelector = nextPageSelector
+      let resolvedDetailLinkSelector = detailLinkSelector
+      let resolvedDetailFields = detailFields
+      let resolvedMaxPages = maxPages
+
+      if (rule) {
+        const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
+        const found = scrape_rules.find((r) => r.name === rule)
+        if (!found) return TextResult(`Rule "${rule}" not found`)
+        resolvedFields = found.fields
+        resolvedNextPageSelector = found.nextPageSelector || nextPageSelector
+        resolvedDetailLinkSelector = found.detailLinkSelector || detailLinkSelector
+        resolvedDetailFields = found.detailFields || detailFields
+        resolvedMaxPages = found.maxPages || maxPages
+      }
+
+      if (!resolvedFields?.length || !resolvedNextPageSelector) {
+        return TextResult("Error: provide fields and nextPageSelector (or use rule)")
+      }
+
+      const tab = await tabReady()
+      const originalTabId = tab.id!
+      const allResults: any[] = []
+      let pageCount = 0
+
+      for (let page = 0; page < resolvedMaxPages!; page++) {
+        pageCount++
+
+        // 1. Scrape current page
+        const scrapeResult = await msgInvoker.invoke({
+          tabId: originalTabId,
+          func: InvokerFunc.CallTools,
+          args: ["scrape", { fields: JSON.stringify(resolvedFields) }],
+        })
+        let pageData: any
+        try {
+          pageData = JSON.parse(scrapeResult.content?.[0]?.text || "{}")
+        } catch {
+          return TextResult(`Error parsing scrape result on page ${page + 1}: ${scrapeResult}`)
+        }
+
+        // 2. Detail extraction if configured
+        if (resolvedDetailLinkSelector && resolvedDetailFields) {
+          const linksResult = await msgInvoker.invoke({
+            tabId: originalTabId,
+            func: InvokerFunc.CallTools,
+            args: [
+              "scrape",
+              {
+                fields: JSON.stringify([
+                  {
+                    key: "_links",
+                    selector: resolvedDetailLinkSelector,
+                    type: "attribute",
+                    attribute: "href",
+                  },
+                ]),
+              },
+            ],
+          })
+          try {
+            const linkData = JSON.parse(linksResult.content?.[0]?.text || "{}")
+            const urls: string[] = Array.isArray(linkData._links)
+              ? linkData._links.filter(Boolean)
+              : linkData._links
+                ? [linkData._links]
+                : []
+
+            // Find the list array in pageData
+            let listItems: any[] = []
+            for (const key of Object.keys(pageData)) {
+              if (Array.isArray(pageData[key])) {
+                listItems = pageData[key]
+                break
+              }
+            }
+
+            for (let i = 0; i < urls.length; i++) {
+              const url = urls[i]
+              if (!url) continue
+              try {
+                const newTab = await chrome.tabs.create({ url, active: false })
+                await tabReadyForTab(newTab.id!)
+                const detail = await msgInvoker.invoke({
+                  tabId: newTab.id!,
+                  func: InvokerFunc.CallTools,
+                  args: ["scrape", { fields: JSON.stringify(resolvedDetailFields) }],
+                })
+                try {
+                  const detailData = JSON.parse(detail.content?.[0]?.text || "{}")
+                  if (listItems[i]) {
+                    Object.assign(listItems[i], detailData)
+                  }
+                } catch { /* skip detail parse error */ }
+                await chrome.tabs.remove(newTab.id!)
+              } catch (e: any) {
+                // Skip failed detail page
+              }
+            }
+          } catch { /* skip detail extraction error */ }
+        }
+
+        // 3. Collect results
+        for (const key of Object.keys(pageData)) {
+          if (Array.isArray(pageData[key])) {
+            allResults.push(...pageData[key])
+          }
+        }
+        if (allResults.length === 0 && !Array.isArray(pageData)) {
+          allResults.push(pageData)
+        }
+
+        // 4. Try next page
+        const nextResult = await msgInvoker.invoke({
+          tabId: originalTabId,
+          func: InvokerFunc.CallTools,
+          args: ["scrape_next_page", { selector: resolvedNextPageSelector }],
+        })
+        try {
+          const { hasNext } = JSON.parse(nextResult.content?.[0]?.text || "{}")
+          if (!hasNext) break
+        } catch {
+          break
+        }
+
+        // 5. Wait for page navigation
+        await new Promise((r) => setTimeout(r, 2000))
+        await tabReadyForTab(originalTabId)
+      }
+
+      return TextResult(
+        JSON.stringify(
+          { totalItems: allResults.length, pages: pageCount, data: allResults },
+          null,
+          2
+        )
+      )
+    }
+  )
+}
+
 export function registerScrapeRuleTools(server: McpServer) {
   const scrapeFieldSchema: z.ZodTypeAny = z.lazy(() =>
     z.object({
@@ -354,8 +543,24 @@ export function registerScrapeRuleTools(server: McpServer) {
       fields: z
         .array(scrapeFieldSchema)
         .describe("Field definitions"),
+      nextPageSelector: z
+        .string()
+        .optional()
+        .describe("CSS selector for the next page button (for scrape_crawl)"),
+      detailLinkSelector: z
+        .string()
+        .optional()
+        .describe("Selector for detail page link within list items"),
+      detailFields: z
+        .array(scrapeFieldSchema)
+        .optional()
+        .describe("Fields to extract from detail pages"),
+      maxPages: z
+        .number()
+        .optional()
+        .describe("Maximum pages to crawl (default: 5)"),
     },
-    async ({ name, urlPattern, fields }) => {
+    async ({ name, urlPattern, fields, nextPageSelector, detailLinkSelector, detailFields, maxPages }) => {
       const { scrape_rules = [] } = await getLocal<{
         scrape_rules: ScrapeRule[]
       }>("scrape_rules")
@@ -365,6 +570,10 @@ export function registerScrapeRuleTools(server: McpServer) {
         name,
         urlPattern,
         fields,
+        nextPageSelector,
+        detailLinkSelector,
+        detailFields,
+        maxPages,
         createdAt: now,
         updatedAt: now,
       }
@@ -413,6 +622,45 @@ export function registerScrapeRuleTools(server: McpServer) {
   )
 }
 
+async function tabReadyForTab(tabId: number) {
+  const tab = await chrome.tabs.get(tabId)
+  if (tab.status !== "complete") {
+    await new Promise<void>((r) => {
+      const handleUpdated = (id: number, info: chrome.tabs.TabChangeInfo) => {
+        if (id === tabId && info.status === "complete") {
+          chrome.tabs.onUpdated.removeListener(handleUpdated)
+          r()
+        }
+      }
+      chrome.tabs.onUpdated.addListener(handleUpdated)
+    })
+  }
+
+  for (let i = 0; i < 5; i++) {
+    try {
+      await msgInvoker.invoke({
+        tabId,
+        func: InvokerFunc.PingContent,
+        timeout: 500,
+      })
+      break
+    } catch {
+      if (i === 0) {
+        await chrome.scripting.executeScript({
+          files: contentScript.js,
+          target: { tabId },
+        })
+        await chrome.scripting.executeScript({
+          files: contentMainScript.js,
+          target: { tabId },
+          world: "MAIN",
+        })
+      }
+      await new Promise((r) => setTimeout(r, 200 * (i + 1)))
+    }
+  }
+}
+
 async function tabReady() {
   const tabs = await chrome.tabs.query({ active: true })
   const tab = tabs[0]
@@ -422,43 +670,7 @@ async function tabReady() {
       "The current tab is unavailable, Please open or switch to the target tab first"
     )
   }
-  if (tab.status !== "complete") {
-    await new Promise<chrome.tabs.Tab>((r) => {
-      const handleUpdated = (tabId: number, info: chrome.tabs.TabChangeInfo) => {
-        if (tabId == tab.id && info.status === "complete") {
-          chrome.tabs.onUpdated.removeListener(handleUpdated)
-          r(tab)
-        }
-      }
-      chrome.tabs.onUpdated.addListener(handleUpdated)
-    })
-  }
-
-  // Ensure content script is injected and ready
-  for (let i = 0; i < 5; i++) {
-    try {
-      await msgInvoker.invoke({
-        tabId: tab.id!,
-        func: InvokerFunc.PingContent,
-        timeout: 500,
-      })
-      break
-    } catch {
-      if (i === 0) {
-        await chrome.scripting.executeScript({
-          files: contentScript.js,
-          target: { tabId: tab.id! },
-        })
-        await chrome.scripting.executeScript({
-          files: contentMainScript.js,
-          target: { tabId: tab.id! },
-          world: "MAIN",
-        })
-      }
-      await new Promise((r) => setTimeout(r, 200 * (i + 1)))
-    }
-  }
-
+  await tabReadyForTab(tab.id!)
   return tab
 }
 
