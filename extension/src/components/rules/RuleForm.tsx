@@ -12,6 +12,7 @@ export interface ScrapeRule {
   detailLinkSelector?: string
   detailFields?: ScrapeField[]
   maxPages?: number
+  maxItems?: number
   enableCache?: boolean
   cacheTTL?: number
   createdAt: number
@@ -244,6 +245,14 @@ export default function RuleForm({
             type="number"
             value={rule.maxPages || 5}
             onChange={(e) => update({ maxPages: Number(e.target.value) || 5 })}
+            className="w-24"
+          />
+          <label className="text-sm text-right">Max items</label>
+          <Input
+            type="number"
+            value={rule.maxItems || ""}
+            onChange={(e) => update({ maxItems: e.target.value ? Number(e.target.value) : undefined })}
+            placeholder="all"
             className="w-24"
           />
         </div>

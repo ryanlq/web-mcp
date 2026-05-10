@@ -14,6 +14,7 @@ interface ScrapeRule {
   detailLinkSelector?: string
   detailFields?: any[]
   maxPages?: number
+  maxItems?: number
   enableCache?: boolean
   cacheTTL?: number
   createdAt: number
@@ -466,6 +467,7 @@ export function registerCrawlTools(server: McpServer) {
       let resolvedDetailLinkSelector = detailLinkSelector
       let resolvedDetailFields = detailFields
       let resolvedMaxPages = maxPages
+      let resolvedMaxItems: number | undefined
       let resolvedCacheTTL = 0
 
       if (rule) {
@@ -477,6 +479,7 @@ export function registerCrawlTools(server: McpServer) {
         resolvedDetailLinkSelector = found.detailLinkSelector || detailLinkSelector
         resolvedDetailFields = found.detailFields || detailFields
         resolvedMaxPages = found.maxPages || maxPages
+        resolvedMaxItems = found.maxItems
         resolvedCacheTTL = found.enableCache ? (found.cacheTTL || 86400) : 0
       }
 
@@ -489,6 +492,7 @@ export function registerCrawlTools(server: McpServer) {
         fields: resolvedFields,
         nextPageSelector: resolvedNextPageSelector,
         maxPages: resolvedMaxPages,
+        maxItems: resolvedMaxItems,
         detailLinkSelector: resolvedDetailLinkSelector,
         detailFields: resolvedDetailFields,
         cacheTTL: resolvedCacheTTL,
@@ -572,6 +576,7 @@ async function executeCrawl(opts: {
   fields: any[]
   nextPageSelector?: string
   maxPages?: number
+  maxItems?: number
   detailLinkSelector?: string
   detailFields?: any[]
   cacheTTL?: number
@@ -698,6 +703,12 @@ async function executeCrawl(opts: {
         allResults.push(pageData)
       }
 
+      // maxItems: truncate and stop early
+      if (opts.maxItems && allResults.length >= opts.maxItems) {
+        allResults.length = opts.maxItems
+        break
+      }
+
       // 4. Try next page (only if nextPageSelector provided)
       if (!opts.nextPageSelector) break
       const nextResult = await msgInvoker.invoke({
@@ -762,6 +773,7 @@ export async function runCrawlTask(taskName: string, waitForCompletion = false):
     fields: rule.fields,
     nextPageSelector: rule.nextPageSelector,
     maxPages: rule.maxPages || 1,
+    maxItems: rule.maxItems,
     detailLinkSelector: rule.detailLinkSelector,
     detailFields: rule.detailFields,
     cacheTTL: rule.enableCache ? (rule.cacheTTL || 86400) : 0,
