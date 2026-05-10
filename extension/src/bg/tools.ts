@@ -499,11 +499,14 @@ async function executeCrawl(opts: {
   maxPages?: number
   detailLinkSelector?: string
   detailFields?: any[]
+  onProgress?: (msg: string) => void
 }): Promise<any> {
+  const progress = (msg: string) => opts.onProgress?.(msg)
   let ownTab = false
   let tabId: number
 
   if (opts.url) {
+    progress(`opening ${opts.url}`)
     const tab = await chrome.tabs.create({ url: opts.url, active: false })
     tabId = tab.id!
     ownTab = true
@@ -520,6 +523,7 @@ async function executeCrawl(opts: {
 
     for (let page = 0; page < maxPages; page++) {
       pageCount++
+      progress(`scraping page ${pageCount}/${maxPages}`)
 
       // 1. Scrape current page
       const scrapeResult = await msgInvoker.invoke({
@@ -536,6 +540,7 @@ async function executeCrawl(opts: {
 
       // 2. Detail extraction if configured
       if (opts.detailLinkSelector && opts.detailFields) {
+        progress("extracting detail links")
         const linksResult = await msgInvoker.invoke({
           tabId,
           func: InvokerFunc.CallTools,
@@ -572,6 +577,7 @@ async function executeCrawl(opts: {
           for (let i = 0; i < urls.length; i++) {
             const url = urls[i]
             if (!url) continue
+            progress(`detail ${i + 1}/${urls.length}: ${url.slice(0, 60)}`)
             try {
               const newTab = await chrome.tabs.create({ url, active: false })
               await tabReadyForTab(newTab.id!)
@@ -619,6 +625,7 @@ async function executeCrawl(opts: {
       await tabReadyForTab(tabId)
     }
 
+    progress(`done: ${allResults.length} items from ${pageCount} pages`)
     return { totalItems: allResults.length, pages: pageCount, data: allResults }
   } finally {
     if (ownTab) {
@@ -627,33 +634,80 @@ async function executeCrawl(opts: {
   }
 }
 
-export async function runCrawlTask(taskName: string) {
+interface TaskExecution {
+  taskId: string
+  taskName: string
+  status: "running" | "completed" | "failed"
+  progress: string
+  startedAt: number
+  completedAt?: number
+  result?: any
+  error?: string
+}
+
+const executions = new Map<string, TaskExecution>()
+
+export async function runCrawlTask(taskName: string, waitForCompletion = false): Promise<any> {
   const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
   const task = crawl_tasks.find((t) => t.name === taskName)
-  if (!task) return { error: `Task "${taskName}" not found` }
+  if (!task) throw new Error(`Task "${taskName}" not found`)
 
   const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
   const rule = scrape_rules.find((r) => r.name === task.ruleName)
-  if (!rule) return { error: `Rule "${task.ruleName}" not found` }
+  if (!rule) throw new Error(`Rule "${task.ruleName}" not found`)
 
-  return executeCrawl({
+  const taskId = `task_${Date.now().toString(36)}`
+  const execution: TaskExecution = {
+    taskId,
+    taskName,
+    status: "running",
+    progress: "starting...",
+    startedAt: Date.now(),
+  }
+  executions.set(taskId, execution)
+
+  // Run crawl in background
+  executeCrawl({
     url: task.url,
     fields: rule.fields,
     nextPageSelector: rule.nextPageSelector,
     maxPages: rule.maxPages || 1,
     detailLinkSelector: rule.detailLinkSelector,
     detailFields: rule.detailFields,
+    onProgress: (msg) => {
+      execution.progress = msg
+    },
+  }).then((result) => {
+    execution.status = "completed"
+    execution.progress = "done"
+    execution.completedAt = Date.now()
+    execution.result = result
+  }).catch((e: any) => {
+    execution.status = "failed"
+    execution.progress = "failed"
+    execution.completedAt = Date.now()
+    execution.error = e.message
   })
+
+  if (waitForCompletion) {
+    while (execution.status === "running") {
+      await new Promise((r) => setTimeout(r, 1000))
+    }
+    if (execution.status === "failed") throw new Error(execution.error)
+    return execution.result
+  }
+
+  return { taskId }
 }
 
 export function registerCrawlTaskTools(server: McpServer) {
   server.tool(
     "crawl_task_run",
-    "Run a saved crawl task by name",
+    "Run a saved crawl task by name. Returns immediately with a taskId. Use crawl_task_status to check progress and get results.",
     { task: z.string().describe("Task name to run") },
     async ({ task }) => {
-      const result = await runCrawlTask(task)
-      return TextResult(JSON.stringify(result, null, 2))
+      const { taskId } = await runCrawlTask(task)
+      return TextResult(JSON.stringify({ taskId, status: "running" }))
     }
   )
 
@@ -665,6 +719,144 @@ export function registerCrawlTaskTools(server: McpServer) {
       .join("\n\n")
     return TextResult(text)
   })
+
+  server.tool(
+    "crawl_task_status",
+    "Check the status of a running or completed crawl task",
+    { taskId: z.string().describe("Task ID from crawl_task_run") },
+    async ({ taskId }) => {
+      const exec = executions.get(taskId)
+      if (!exec) return TextResult(`Task ${taskId} not found`)
+      const elapsed = Math.round((Date.now() - exec.startedAt) / 1000)
+      const info: Record<string, any> = {
+        taskId: exec.taskId,
+        taskName: exec.taskName,
+        status: exec.status,
+        progress: exec.progress,
+        elapsed: `${elapsed}s`,
+      }
+      if (exec.error) info.error = exec.error
+      if (exec.result) {
+        const totalItems = exec.result.totalItems || 0
+        const pages = exec.result.pages || 0
+        info.totalItems = totalItems
+        info.pages = pages
+      }
+      return TextResult(JSON.stringify(info, null, 2))
+    }
+  )
+
+  server.tool(
+    "crawl_task_result",
+    "Get the result of a completed crawl task",
+    { taskId: z.string().describe("Task ID from crawl_task_run") },
+    async ({ taskId }) => {
+      const exec = executions.get(taskId)
+      if (!exec) return TextResult(`Task ${taskId} not found`)
+      if (exec.status === "running") return TextResult(`Task still running: ${exec.progress}`)
+      if (exec.status === "failed") return TextResult(`Task failed: ${exec.error}`)
+      return TextResult(JSON.stringify(exec.result, null, 2))
+    }
+  )
+
+  // Core tools always available with task group
+  server.tool(
+    "scrape",
+    "Extract structured data from the current page using CSS selectors",
+    {
+      fields: z
+        .array(z.lazy(() =>
+          z.object({
+            key: z.string().describe("Output field name"),
+            selector: z.string().describe("CSS selector"),
+            type: z.enum(["text", "html", "attribute", "list"]).default("text"),
+            attribute: z.string().optional(),
+            fields: z.array(z.lazy(() => z.any())).optional(),
+          })
+        ))
+        .optional()
+        .describe("Field definitions"),
+      rule: z.string().optional().describe("Use a saved rule by name"),
+      auto_match: z.boolean().optional().describe("Auto-match a saved rule by current page URL"),
+    },
+    async ({ fields, rule, auto_match }) => {
+      let resolvedFields = fields
+      if (rule) {
+        const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
+        const found = scrape_rules.find((r) => r.name === rule)
+        if (!found) return TextResult(`Rule "${rule}" not found`)
+        resolvedFields = found.fields
+      } else if (auto_match) {
+        const tab = await tabReady()
+        const url = tab.url || ""
+        const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
+        const matched = scrape_rules.find((r) => matchUrl(url, r.urlPattern))
+        if (!matched) return TextResult(`No matching rule for ${url}`)
+        resolvedFields = matched.fields
+      }
+      if (!resolvedFields?.length) {
+        return TextResult("Error: provide fields, rule name, or set auto_match=true")
+      }
+      const tab = await tabReady()
+      return msgInvoker.invoke({
+        tabId: tab.id,
+        func: InvokerFunc.CallTools,
+        args: ["scrape", { fields: JSON.stringify(resolvedFields) }],
+      })
+    }
+  )
+
+  server.tool(
+    "export_data",
+    "Export data as a file download (JSON or CSV)",
+    {
+      data: z.string().describe("Data to export (JSON string)"),
+      filename: z.string().describe("Output filename"),
+      format: z.enum(["json", "csv"]).default("json").describe("Export format"),
+    },
+    async ({ data, filename, format }) => {
+      let content: string
+      let mimeType: string
+      if (format === "csv") {
+        const parsed = JSON.parse(data)
+        if (!Array.isArray(parsed)) return TextResult("Error: CSV export requires a JSON array")
+        const keys = Object.keys(parsed[0])
+        const rows = [keys.join(",")]
+        for (const item of parsed) {
+          rows.push(keys.map((k) => {
+            const val = String(item[k] ?? "")
+            return val.includes(",") || val.includes('"') ? `"${val.replace(/"/g, '""')}"` : val
+          }).join(","))
+        }
+        content = rows.join("\n")
+        mimeType = "text/csv"
+      } else {
+        content = data
+        mimeType = "application/json"
+      }
+      const dataUrl = `data:${mimeType};charset=utf-8,${encodeURIComponent(content)}`
+      await chrome.downloads.download({ url: dataUrl, filename })
+      return TextResult(`Exported ${filename}`)
+    }
+  )
+
+  server.tool(
+    "screenshot",
+    "Capture a screenshot of the current tab",
+    {
+      format: z.enum(["png", "jpeg"]).optional().describe("Image format (default: png)"),
+      quality: z.number().min(1).max(100).optional().describe("Image quality for jpeg"),
+    },
+    async ({ format, quality }) => {
+      const tab = await tabReady()
+      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId!, {
+        format: format || "png",
+        quality,
+      })
+      const base64 = dataUrl.split(",")[1]
+      return ImageResult(base64, `image/${format || "png"}`)
+    }
+  )
 }
 
 export function registerScrapeRuleTools(server: McpServer) {

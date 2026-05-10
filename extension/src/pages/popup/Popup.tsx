@@ -8,7 +8,7 @@ import { sessionSubject } from "@/utils/subjects"
 import { IconAnythingCopilot, IconGithub } from "@/components/svg"
 import Panel from "@/components/connection/Panel"
 import Indicator from "@/components/connection/Indicator"
-import { ArrowUpRight, Play, Copy, Download } from "lucide-react"
+import { ArrowUpRight, Play, CheckCircle } from "lucide-react"
 import useStorage from "@/hooks/useStorage"
 
 interface CrawlTask {
@@ -20,67 +20,37 @@ interface CrawlTask {
 function CrawlPanel() {
   const { crawl_tasks = [] } = useStorage<{ crawl_tasks: CrawlTask[] }>({ crawl_tasks: [] })
   const [running, setRunning] = useState<string | null>(null)
-  const [result, setResult] = useState<{ taskName: string; data: any } | null>(null)
+  const [done, setDone] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  const downloadResult = (taskName: string, data: any) => {
+    const json = JSON.stringify(data?.data || data, null, 2)
+    const blob = new Blob([json], { type: "application/json" })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = `${taskName}_${Date.now()}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const handleRun = async (task: CrawlTask) => {
     setRunning(task.name)
-    setResult(null)
+    setDone(null)
     setError(null)
     try {
       const response = await chrome.runtime.sendMessage({ type: "run_task", taskName: task.name })
       if (response?.error) {
         setError(response.error)
       } else {
-        setResult({ taskName: task.name, data: response })
+        downloadResult(task.name, response)
+        setDone(task.name)
       }
     } catch (e: any) {
       setError(e.message)
     } finally {
       setRunning(null)
     }
-  }
-
-  const handleCopy = () => {
-    if (!result) return
-    navigator.clipboard.writeText(JSON.stringify(result.data, null, 2))
-  }
-
-  const handleExport = () => {
-    if (!result) return
-    const data = result.data?.data || result.data
-    const json = JSON.stringify(data, null, 2)
-    const blob = new Blob([json], { type: "application/json" })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement("a")
-    a.href = url
-    a.download = `${result.taskName}_${Date.now()}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  if (result) {
-    return (
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">Result: {result.taskName}</span>
-          <div className="flex gap-1">
-            <Button variant="ghost" size="sm" onClick={handleCopy}>
-              <Copy className="size-3" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleExport}>
-              <Download className="size-3" />
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => setResult(null)}>
-              Close
-            </Button>
-          </div>
-        </div>
-        <pre className="text-xs bg-muted p-2 rounded max-h-64 overflow-auto whitespace-pre-wrap">
-          {JSON.stringify(result.data?.data || result.data, null, 2).slice(0, 5000)}
-        </pre>
-      </div>
-    )
   }
 
   if (error) {
@@ -111,6 +81,9 @@ function CrawlPanel() {
             <div className="text-sm font-medium truncate">{task.name}</div>
             <div className="text-xs text-muted-foreground truncate">{task.ruleName}</div>
           </div>
+          {done === task.name && !running && (
+            <CheckCircle className="size-4 text-green-500" />
+          )}
           <Button
             variant="outline"
             size="sm"

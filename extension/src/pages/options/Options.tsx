@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
-import { Plus, HelpCircle, Wand2, Trash2, Pencil } from "lucide-react"
+import { Plus, HelpCircle, Wand2, Trash2, Pencil, Settings } from "lucide-react"
 import useStorage from "@/hooks/useStorage"
 import { getLocal, setLocal } from "@/utils/ext"
 import RuleList from "@/components/rules/RuleList"
@@ -8,6 +8,7 @@ import RuleForm from "@/components/rules/RuleForm"
 import ImportExport from "@/components/rules/ImportExport"
 import TaskForm, { type CrawlTask } from "@/components/tasks/TaskForm"
 import type { ScrapeRule } from "@/components/rules/RuleForm"
+import { type ToolSettings, defaultToolSettings } from "@/bg/mcp"
 
 const presetRules: ScrapeRule[] = [
   {
@@ -147,6 +148,15 @@ export default function Options() {
   })
   const [editingRule, setEditingRule] = useState<ScrapeRule | null | "new">(null)
   const [editingTask, setEditingTask] = useState<CrawlTask | null | "new">(null)
+  const { tool_settings: rawToolSettings } = useStorage<{ tool_settings: Partial<ToolSettings> }>({
+    tool_settings: defaultToolSettings,
+  })
+  const toolSettings: ToolSettings = { ...defaultToolSettings, ...rawToolSettings }
+
+  const toggleToolGroup = async (key: keyof ToolSettings) => {
+    const updated = { ...toolSettings, [key]: !toolSettings[key] }
+    await setLocal({ tool_settings: updated })
+  }
 
   const handleSaveRule = async (rule: ScrapeRule) => {
     const { scrape_rules: existing = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
@@ -267,6 +277,40 @@ export default function Options() {
                 <Trash2 className="size-3" />
               </Button>
             </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <div className="flex items-center gap-2 mb-3">
+          <Settings className="size-4" />
+          <h1 className="text-xl font-semibold">MCP Tool Settings</h1>
+        </div>
+        <p className="text-sm text-muted-foreground mb-3">
+          Control which tool groups are exposed via MCP. Changes take effect on next MCP connection.
+        </p>
+        <div className="space-y-2">
+          {([
+            { key: "task" as const, label: "Task Tools", desc: "crawl_task_run, crawl_task_list, scrape_crawl, scrape, export_data, screenshot (default: on)" },
+            { key: "page" as const, label: "Page Interaction", desc: "page_snapshot, click, type, press_key, scroll, hover, wait_for" },
+            { key: "browser" as const, label: "Browser", desc: "switch-tab, get-tabs, new-tab, remove-tab, wait" },
+            { key: "rule" as const, label: "Rule Management", desc: "scrape_rule_add, scrape_rule_list, scrape_rule_remove" },
+          ]).map(({ key, label, desc }) => (
+            <label
+              key={key}
+              className="flex items-start gap-3 border rounded-md p-3 cursor-pointer hover:bg-muted/50"
+            >
+              <input
+                type="checkbox"
+                checked={toolSettings[key]}
+                onChange={() => toggleToolGroup(key)}
+                className="mt-0.5"
+              />
+              <div>
+                <div className="text-sm font-medium">{label}</div>
+                <div className="text-xs text-muted-foreground">{desc}</div>
+              </div>
+            </label>
           ))}
         </div>
       </div>

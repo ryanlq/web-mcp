@@ -2,8 +2,23 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js"
 import { registerBrowserTools, registerPageTools, registerScrapeRuleTools, registerCrawlTools, registerCrawlTaskTools, insiderTools } from "./tools"
+import { getLocal } from "@/utils/ext"
 import { Subject } from "rxjs"
 import { version } from "@/manifest"
+
+export interface ToolSettings {
+  task: boolean
+  page: boolean
+  browser: boolean
+  rule: boolean
+}
+
+export const defaultToolSettings: ToolSettings = {
+  task: true,
+  page: false,
+  browser: false,
+  rule: false,
+}
 
 export class ObservableMcpServer extends McpServer {
   private readonly _receivedMessage$ = new Subject<JSONRPCMessage>()
@@ -53,16 +68,27 @@ export class ObservableMcpServer extends McpServer {
 }
 
 export async function createMCPServer() {
+  const { tool_settings = {} } = await getLocal<{ tool_settings: Partial<ToolSettings> }>("tool_settings")
+  const settings: ToolSettings = { ...defaultToolSettings, ...tool_settings }
+
   const server = new ObservableMcpServer({
     name: "Web MCP",
     version: "0.0.1",
   })
 
-  registerBrowserTools(server)
-  registerPageTools(server)
-  registerScrapeRuleTools(server)
-  registerCrawlTools(server)
-  registerCrawlTaskTools(server)
+  if (settings.task) {
+    registerCrawlTools(server)
+    registerCrawlTaskTools(server)
+  }
+  if (settings.page) {
+    registerPageTools(server)
+  }
+  if (settings.browser) {
+    registerBrowserTools(server)
+  }
+  if (settings.rule) {
+    registerScrapeRuleTools(server)
+  }
 
   if (version == "0.0.0") {
     insiderTools(server)

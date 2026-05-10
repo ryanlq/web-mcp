@@ -66,7 +66,7 @@ function handleMessage(message: any, sender: chrome.runtime.MessageSender, sendR
       msgInvoker.handleResMsg(message)
       break
     case "run_task":
-      runCrawlTask(message.taskName).then(sendResponse).catch((e) => sendResponse({ error: e.message }))
+      runCrawlTask(message.taskName, true).then(sendResponse).catch((e) => sendResponse({ error: e.message }))
       return true // keep channel open for async response
   }
 }
