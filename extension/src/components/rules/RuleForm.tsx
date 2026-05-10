@@ -12,6 +12,8 @@ export interface ScrapeRule {
   detailLinkSelector?: string
   detailFields?: ScrapeField[]
   maxPages?: number
+  enableCache?: boolean
+  cacheTTL?: number
   createdAt: number
   updatedAt: number
 }
@@ -274,6 +276,37 @@ export default function RuleForm({
             >
               Add Detail Fields
             </Button>
+          )}
+          {rule.detailFields && rule.detailFields.length > 0 && (
+            <div className="flex items-center gap-3 border-t pt-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={rule.enableCache || false}
+                  onChange={(e) => update({
+                    enableCache: e.target.checked,
+                    cacheTTL: e.target.checked ? (rule.cacheTTL || 86400) : undefined,
+                  })}
+                />
+                Cache detail pages
+              </label>
+              {rule.enableCache && (
+                <div className="flex items-center gap-1 text-sm">
+                  <span>TTL:</span>
+                  <select
+                    value={rule.cacheTTL || 86400}
+                    onChange={(e) => update({ cacheTTL: Number(e.target.value) })}
+                    className="border rounded px-1 py-0.5 text-xs"
+                  >
+                    <option value={3600}>1 hour</option>
+                    <option value={21600}>6 hours</option>
+                    <option value={86400}>24 hours</option>
+                    <option value={604800}>7 days</option>
+                    <option value={2592000}>30 days</option>
+                  </select>
+                </div>
+              )}
+            </div>
           )}
         </div>
       </details>

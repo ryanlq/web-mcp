@@ -14,6 +14,8 @@ interface ScrapeRule {
   detailLinkSelector?: string
   detailFields?: any[]
   maxPages?: number
+  enableCache?: boolean
+  cacheTTL?: number
   createdAt: number
   updatedAt: number
 }
@@ -464,6 +466,7 @@ export function registerCrawlTools(server: McpServer) {
       let resolvedDetailLinkSelector = detailLinkSelector
       let resolvedDetailFields = detailFields
       let resolvedMaxPages = maxPages
+      let resolvedCacheTTL = 0
 
       if (rule) {
         const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
@@ -474,6 +477,7 @@ export function registerCrawlTools(server: McpServer) {
         resolvedDetailLinkSelector = found.detailLinkSelector || detailLinkSelector
         resolvedDetailFields = found.detailFields || detailFields
         resolvedMaxPages = found.maxPages || maxPages
+        resolvedCacheTTL = found.enableCache ? (found.cacheTTL || 86400) : 0
       }
 
       if (!resolvedFields?.length) {
@@ -487,9 +491,80 @@ export function registerCrawlTools(server: McpServer) {
         maxPages: resolvedMaxPages,
         detailLinkSelector: resolvedDetailLinkSelector,
         detailFields: resolvedDetailFields,
+        cacheTTL: resolvedCacheTTL,
       })
     }
   )
+}
+
+interface DetailCache {
+  [normalizedUrl: string]: {
+    data: any
+    fetchedAt: number
+    ttl: number
+  }
+}
+
+const CACHE_MAX = 500
+
+function normalizeUrl(url: string): string {
+  try {
+    const u = new URL(url)
+    u.hash = ""
+    u.searchParams.delete("utm_source")
+    u.searchParams.delete("utm_medium")
+    u.searchParams.delete("utm_campaign")
+    u.searchParams.delete("ref")
+    return u.href.replace(/\/+$/, "")
+  } catch {
+    return url
+  }
+}
+
+async function getCache(): Promise<DetailCache> {
+  const { detail_cache = {} } = await getLocal<{ detail_cache: DetailCache }>("detail_cache")
+  return detail_cache
+}
+
+async function getCachedDetail(url: string, ttl: number): Promise<any | null> {
+  const cache = await getCache()
+  const key = normalizeUrl(url)
+  const entry = cache[key]
+  if (!entry) return null
+  if (Date.now() - entry.fetchedAt > ttl * 1000) {
+    delete cache[key]
+    await setLocal({ detail_cache: cache })
+    return null
+  }
+  return entry.data
+}
+
+async function setCachedDetail(url: string, data: any, ttl: number): Promise<void> {
+  const cache = await getCache()
+  const key = normalizeUrl(url)
+  cache[key] = { data, fetchedAt: Date.now(), ttl }
+  const entries = Object.entries(cache)
+  if (entries.length > CACHE_MAX) {
+    entries.sort((a, b) => a[1].fetchedAt - b[1].fetchedAt)
+    for (const [k] of entries.slice(0, entries.length - CACHE_MAX)) delete cache[k]
+  }
+  await setLocal({ detail_cache: cache })
+}
+
+export async function clearDetailCache(): Promise<number> {
+  const { detail_cache = {} } = await getLocal<{ detail_cache: DetailCache }>("detail_cache")
+  const count = Object.keys(detail_cache).length
+  await setLocal({ detail_cache: {} })
+  return count
+}
+
+export async function getCacheStats(): Promise<{ count: number; oldestAt: number | null }> {
+  const cache = await getCache()
+  const entries = Object.values(cache)
+  return {
+    count: entries.length,
+    oldestAt: entries.length ? Math.min(...entries.map((e) => e.fetchedAt)) : null,
+  }
 }
 
 async function executeCrawl(opts: {
@@ -499,6 +574,7 @@ async function executeCrawl(opts: {
   maxPages?: number
   detailLinkSelector?: string
   detailFields?: any[]
+  cacheTTL?: number
   onProgress?: (msg: string) => void
 }): Promise<any> {
   const progress = (msg: string) => opts.onProgress?.(msg)
@@ -574,10 +650,21 @@ async function executeCrawl(opts: {
             }
           }
 
+          const cacheTTL = opts.cacheTTL || 0
           for (let i = 0; i < urls.length; i++) {
             const url = urls[i]
             if (!url) continue
             progress(`detail ${i + 1}/${urls.length}: ${url.slice(0, 60)}`)
+
+            if (cacheTTL > 0) {
+              const cached = await getCachedDetail(url, cacheTTL)
+              if (cached) {
+                progress(`detail ${i + 1}/${urls.length}: cached`)
+                if (listItems[i]) Object.assign(listItems[i], cached)
+                continue
+              }
+            }
+
             try {
               const newTab = await chrome.tabs.create({ url, active: false })
               await tabReadyForTab(newTab.id!)
@@ -590,6 +677,9 @@ async function executeCrawl(opts: {
                 const detailData = JSON.parse(detail.content?.[0]?.text || "{}")
                 if (listItems[i]) {
                   Object.assign(listItems[i], detailData)
+                }
+                if (cacheTTL > 0 && detailData) {
+                  await setCachedDetail(url, detailData, cacheTTL)
                 }
               } catch { /* skip detail parse error */ }
               await chrome.tabs.remove(newTab.id!)
@@ -674,6 +764,7 @@ export async function runCrawlTask(taskName: string, waitForCompletion = false):
     maxPages: rule.maxPages || 1,
     detailLinkSelector: rule.detailLinkSelector,
     detailFields: rule.detailFields,
+    cacheTTL: rule.enableCache ? (rule.cacheTTL || 86400) : 0,
     onProgress: (msg) => {
       execution.progress = msg
     },

@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Plus, HelpCircle, Wand2, Trash2, Pencil, Settings } from "lucide-react"
 import useStorage from "@/hooks/useStorage"
@@ -8,6 +8,7 @@ import RuleForm from "@/components/rules/RuleForm"
 import ImportExport from "@/components/rules/ImportExport"
 import TaskForm, { type CrawlTask } from "@/components/tasks/TaskForm"
 import type { ScrapeRule } from "@/components/rules/RuleForm"
+import { clearDetailCache, getCacheStats } from "@/bg/tools"
 import { type ToolSettings, defaultToolSettings } from "@/bg/mcp"
 
 const presetRules: ScrapeRule[] = [
@@ -148,14 +149,24 @@ export default function Options() {
   })
   const [editingRule, setEditingRule] = useState<ScrapeRule | null | "new">(null)
   const [editingTask, setEditingTask] = useState<CrawlTask | null | "new">(null)
+  const [cacheStats, setCacheStats] = useState<{ count: number; oldestAt: number | null }>({ count: 0, oldestAt: null })
   const { tool_settings: rawToolSettings } = useStorage<{ tool_settings: Partial<ToolSettings> }>({
     tool_settings: defaultToolSettings,
   })
   const toolSettings: ToolSettings = { ...defaultToolSettings, ...rawToolSettings }
 
+  useEffect(() => {
+    getCacheStats().then(setCacheStats)
+  }, [])
+
   const toggleToolGroup = async (key: keyof ToolSettings) => {
     const updated = { ...toolSettings, [key]: !toolSettings[key] }
     await setLocal({ tool_settings: updated })
+  }
+
+  const handleClearCache = async () => {
+    await clearDetailCache()
+    setCacheStats({ count: 0, oldestAt: null })
   }
 
   const handleSaveRule = async (rule: ScrapeRule) => {
@@ -313,6 +324,21 @@ export default function Options() {
             </label>
           ))}
         </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-semibold">Detail Page Cache</h1>
+          <Button variant="outline" size="sm" onClick={handleClearCache} disabled={cacheStats.count === 0}>
+            <Trash2 className="size-3" />
+            Clear Cache
+          </Button>
+        </div>
+        <p className="text-sm text-muted-foreground">
+          {cacheStats.count > 0
+            ? `${cacheStats.count} cached page${cacheStats.count > 1 ? "s" : ""}${cacheStats.oldestAt ? ` (oldest: ${new Date(cacheStats.oldestAt).toLocaleDateString()})` : ""}`
+            : "No cached pages"}
+        </p>
       </div>
     </div>
   )
