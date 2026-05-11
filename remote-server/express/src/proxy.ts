@@ -15,6 +15,8 @@ export class Proxy {
   private webTransports: Map<string, SSEServerTransport> = new Map()
   private transports: Map<string, SSEServerTransport> = new Map()
   private sessions: Map<string, Session> = new Map()
+  // Maps old sessionId → current sessionId (handles SSE reconnections)
+  private sessionRedirects: Map<string, string> = new Map()
   private timer: NodeJS.Timeout
 
   constructor() {
@@ -34,6 +36,10 @@ export class Proxy {
         webTransport?.onclose?.()
         this.transports.delete(session.sessionId)
         this.webTransports.delete(session.webSessionId)
+        // Clean up redirects pointing to this session
+        for (const [from, to] of this.sessionRedirects) {
+          if (to === session.sessionId) this.sessionRedirects.delete(from)
+        }
         this.sessions.delete(token)
         console.log(`Session expired: ${token.slice(0, 8)}...`)
       }
@@ -69,7 +75,6 @@ export class Proxy {
       this.webTransports.delete(stale.sessionId)
       stale.onmessage = undefined
       stale.onerror = undefined
-      // close ?
     }
 
     this.webTransports.set(transport.sessionId, transport)
@@ -91,12 +96,17 @@ export class Proxy {
       throw new Error("Session not found")
     }
 
+    // Track redirect from old sessionId to new one
+    if (session.sessionId && session.sessionId !== transport.sessionId) {
+      this.sessionRedirects.set(session.sessionId, transport.sessionId)
+      console.log(`Session redirect: ${session.sessionId.slice(0, 8)} → ${transport.sessionId.slice(0, 8)}`)
+    }
+
     const stale = this.transports.get(session.sessionId)
     if (stale) {
       this.transports.delete(stale.sessionId)
       stale.onmessage = undefined
       stale.onerror = undefined
-      // close ?
     }
     session.sessionId = transport.sessionId
     this.sessions.set(token, session)
@@ -115,12 +125,29 @@ export class Proxy {
     await transport.start()
   }
 
+  /**
+   * Resolve sessionId through redirect chain.
+   * Handles the case where SSE reconnects generate new sessionIds
+   * but clients still POST with the old sessionId.
+   */
+  private resolveSessionId(sessionId: string): string {
+    const seen = new Set<string>()
+    let current = sessionId
+    while (this.sessionRedirects.has(current)) {
+      if (seen.has(current)) break // prevent infinite loop
+      seen.add(current)
+      current = this.sessionRedirects.get(current)!
+    }
+    return current
+  }
+
   getWebTransport(sessionId: string) {
     return this.webTransports.get(sessionId)
   }
 
   getTransport(sessionId: string) {
-    return this.transports.get(sessionId)
+    const resolved = this.resolveSessionId(sessionId)
+    return this.transports.get(resolved)
   }
 
   validateToken(token: string) {
@@ -132,7 +159,6 @@ export class Proxy {
   }
 
   private proxy(client: SSEServerTransport, web: SSEServerTransport) {
-    // Find session to update lastActiveAt
     let sessionToken: string | null = null
     for (const [token, session] of this.sessions) {
       if (session.sessionId === client.sessionId || session.webSessionId === web.sessionId) {
