@@ -78,7 +78,7 @@ export async function createMCPServer() {
 
   if (settings.task) {
     registerCrawlTools(server)
-    registerCrawlTaskTools(server)
+    await registerCrawlTaskTools(server)
   }
   if (settings.page) {
     registerPageTools(server)

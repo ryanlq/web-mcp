@@ -13,6 +13,7 @@ import useStorage from "@/hooks/useStorage"
 
 interface CrawlTask {
   name: string
+  description?: string
   ruleName: string
   url: string
 }

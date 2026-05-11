@@ -6,6 +6,7 @@ import type { ScrapeRule } from "@/components/rules/RuleForm"
 
 export interface CrawlTask {
   name: string
+  description?: string
   ruleName: string
   url: string
   createdAt: number
@@ -15,6 +16,7 @@ export interface CrawlTask {
 export function defaultTask(): CrawlTask {
   return {
     name: "",
+    description: "",
     ruleName: "",
     url: "",
     createdAt: Date.now(),
@@ -61,6 +63,13 @@ export default function TaskForm({
           value={task.name}
           onChange={(e) => update({ name: e.target.value })}
           placeholder="My crawl task"
+        />
+
+        <label className="text-sm font-medium text-right">Description</label>
+        <Input
+          value={task.description || ""}
+          onChange={(e) => update({ description: e.target.value })}
+          placeholder="Describe what this task does (shown to AI assistants)"
         />
 
         <label className="text-sm font-medium text-right">Rule</label>

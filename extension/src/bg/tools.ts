@@ -23,6 +23,7 @@ interface ScrapeRule {
 
 interface CrawlTask {
   name: string
+  description?: string
   ruleName: string
   url: string
   createdAt: number
@@ -430,7 +431,7 @@ export function registerCrawlTools(server: McpServer) {
 
   server.tool(
     "scrape_crawl",
-    "Crawl multiple pages with pagination and optional sub-page detail extraction",
+    "Crawl multiple pages with pagination and extract detail pages. Use when the user wants to scrape a list page with pagination, or extract linked detail pages. Can reference a saved rule by name or accept inline field definitions. Optionally opens a target URL in a background tab.",
     {
       fields: z
         .array(crawlFieldSchema)
@@ -809,29 +810,41 @@ export async function runCrawlTask(taskName: string, waitForCompletion = false):
   return { taskId }
 }
 
-export function registerCrawlTaskTools(server: McpServer) {
+export async function registerCrawlTaskTools(server: McpServer) {
+  // Build dynamic description with current task list
+  const { crawl_tasks: tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
+  const taskListStr = tasks.length
+    ? "\n\nAvailable tasks:\n" + tasks.map((t) =>
+        `- "${t.name}": ${t.description || `Scrape ${t.url} using rule "${t.ruleName}"`}`
+      ).join("\n")
+    : "\n\nNo tasks configured yet. Use crawl_task_list after creating tasks."
+
   server.tool(
     "crawl_task_run",
-    "Run a saved crawl task by name. Returns immediately with a taskId. Use crawl_task_status to check progress and get results.",
-    { task: z.string().describe("Task name to run") },
+    `Execute a pre-configured web scraping task by name. Use this when the user wants to scrape, crawl, extract data from a website, fetch news/articles, or collect web content. Returns immediately with a taskId — use crawl_task_status to check progress, then crawl_task_result to get data.${taskListStr}`,
+    { task: z.string().describe("Task name to run (must match exactly)") },
     async ({ task }) => {
       const { taskId } = await runCrawlTask(task)
       return TextResult(JSON.stringify({ taskId, status: "running" }))
     }
   )
 
-  server.tool("crawl_task_list", "List all saved crawl tasks", async () => {
-    const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
-    if (!crawl_tasks.length) return TextResult("No tasks saved")
-    const text = crawl_tasks
-      .map((t) => `Name: ${t.name}\nRule: ${t.ruleName}\nURL: ${t.url}`)
-      .join("\n\n")
-    return TextResult(text)
-  })
+  server.tool(
+    "crawl_task_list",
+    "List all saved crawl tasks with their names, descriptions, and target URLs. Use when the user wants to see what scraping tasks are available.",
+    async () => {
+      const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
+      if (!crawl_tasks.length) return TextResult("No tasks saved")
+      const text = crawl_tasks
+        .map((t) => `Name: ${t.name}\n${t.description ? `Description: ${t.description}\n` : ""}Rule: ${t.ruleName}\nURL: ${t.url}`)
+        .join("\n\n")
+      return TextResult(text)
+    }
+  )
 
   server.tool(
     "crawl_task_status",
-    "Check the status of a running or completed crawl task",
+    "Check progress of a running crawl task. Returns status (running/completed/failed), progress message, elapsed time. Poll this after crawl_task_run until status is completed or failed.",
     { taskId: z.string().describe("Task ID from crawl_task_run") },
     async ({ taskId }) => {
       const exec = executions.get(taskId)
@@ -857,7 +870,7 @@ export function registerCrawlTaskTools(server: McpServer) {
 
   server.tool(
     "crawl_task_result",
-    "Get the result of a completed crawl task",
+    "Get the scraped data from a completed crawl task. Call this after crawl_task_status shows status=completed. Returns all extracted items as JSON.",
     { taskId: z.string().describe("Task ID from crawl_task_run") },
     async ({ taskId }) => {
       const exec = executions.get(taskId)
@@ -871,7 +884,7 @@ export function registerCrawlTaskTools(server: McpServer) {
   // Core tools always available with task group
   server.tool(
     "scrape",
-    "Extract structured data from the current page using CSS selectors",
+    "Extract structured data from the current active browser tab using CSS selectors. Use when you need to quickly scrape the page the user is currently viewing. Provide fields array with CSS selectors, or reference a saved rule by name, or set auto_match=true to auto-detect a rule matching the current URL.",
     {
       fields: z
         .array(z.lazy(() =>
@@ -917,7 +930,7 @@ export function registerCrawlTaskTools(server: McpServer) {
 
   server.tool(
     "export_data",
-    "Export data as a file download (JSON or CSV)",
+    "Download data as a file (JSON or CSV) to the user's browser. Use when the user wants to save/export/download scrape results or any JSON data as a file.",
     {
       data: z.string().describe("Data to export (JSON string)"),
       filename: z.string().describe("Output filename"),
@@ -951,7 +964,7 @@ export function registerCrawlTaskTools(server: McpServer) {
 
   server.tool(
     "screenshot",
-    "Capture a screenshot of the current tab",
+    "Take a screenshot of the current browser tab. Use when the user wants to see what's on the page or capture a visual snapshot.",
     {
       format: z.enum(["png", "jpeg"]).optional().describe("Image format (default: png)"),
       quality: z.number().min(1).max(100).optional().describe("Image quality for jpeg"),

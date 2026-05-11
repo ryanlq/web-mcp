@@ -277,6 +277,9 @@ export default function Options() {
             >
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm">{task.name}</div>
+                {task.description && (
+                  <div className="text-xs text-muted-foreground truncate">{task.description}</div>
+                )}
                 <div className="text-xs text-muted-foreground truncate">
                   Rule: {task.ruleName} | {task.url}
                 </div>
