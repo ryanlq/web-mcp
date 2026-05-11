@@ -15,7 +15,7 @@ type Props = {
 }
 
 export default function Connect({ state }: Props) {
-  const [proxyUrl, setProxyUrl] = useState("https://web-mcp.koyeb.app/web/sse")
+  const [proxyUrl, setProxyUrl] = useState("https://web-mcp-7wvp.onrender.com/web/sse")
   const [tokenData, setTokenData] = useState({
     url: "",
     token: "",

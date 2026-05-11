@@ -45,8 +45,8 @@ export default function ProxyInput({
           label: t("officialService"),
           options: [
             {
-              label: "https://web-mcp.onrender.com/web/sse",
-              value: "https://web-mcp.onrender.com/web/sse",
+              label: "https://web-mcp-7wvp.onrender.com/web/sse",
+              value: "https://web-mcp-7wvp.onrender.com/web/sse",
             },
             {
               label: "https://web-mcp.koyeb.app/web/sse",
