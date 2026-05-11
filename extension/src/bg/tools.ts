@@ -655,6 +655,12 @@ async function executeCrawl(opts: {
             }
           }
 
+          // maxItems: limit detail pages to open
+          if (opts.maxItems) {
+            if (urls.length > opts.maxItems) urls.length = opts.maxItems
+            if (listItems.length > opts.maxItems) listItems.length = opts.maxItems
+          }
+
           const cacheTTL = opts.cacheTTL || 0
           for (let i = 0; i < urls.length; i++) {
             const url = urls[i]
