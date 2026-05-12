@@ -3,11 +3,13 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { ArrowLeft } from "lucide-react"
 import type { ScrapeRule } from "@/components/rules/RuleForm"
+import type { ScriptTask } from "@/components/scripts/ScriptForm"
 
 export interface CrawlTask {
   name: string
   description?: string
-  ruleName: string
+  ruleName?: string
+  scriptName?: string
   url: string
   createdAt: number
   updatedAt: number
@@ -27,11 +29,13 @@ export function defaultTask(): CrawlTask {
 export default function TaskForm({
   task: initial,
   rules,
+  scripts,
   onSave,
   onCancel,
 }: {
   task?: CrawlTask
   rules: ScrapeRule[]
+  scripts: ScriptTask[]
   onSave: (task: CrawlTask) => void
   onCancel: () => void
 }) {
@@ -41,10 +45,23 @@ export default function TaskForm({
     setTask((prev) => ({ ...prev, ...patch }))
   }
 
-  const handleSave = () => {
-    if (!task.name || !task.ruleName || !task.url) return
-    onSave({ ...task, updatedAt: Date.now() })
+  const handleSelect = (value: string) => {
+    if (value.startsWith("rule:")) {
+      update({ ruleName: value.slice(5), scriptName: undefined })
+    } else if (value.startsWith("script:")) {
+      update({ scriptName: value.slice(7), ruleName: undefined })
+    } else {
+      update({ ruleName: undefined, scriptName: undefined })
+    }
   }
+
+  const selectedValue = task.ruleName
+    ? `rule:${task.ruleName}`
+    : task.scriptName
+      ? `script:${task.scriptName}`
+      : ""
+
+  const canSave = task.name && task.url && (task.ruleName || task.scriptName)
 
   return (
     <div className="space-y-4">
@@ -72,16 +89,27 @@ export default function TaskForm({
           placeholder="Describe what this task does (shown to AI assistants)"
         />
 
-        <label className="text-sm font-medium text-right">Rule</label>
+        <label className="text-sm font-medium text-right">Rule / Script</label>
         <select
-          value={task.ruleName}
-          onChange={(e) => update({ ruleName: e.target.value })}
+          value={selectedValue}
+          onChange={(e) => handleSelect(e.target.value)}
           className="h-9 rounded-md border bg-background px-2 text-sm"
         >
-          <option value="">Select a rule...</option>
-          {rules.map((r) => (
-            <option key={r.name} value={r.name}>{r.name}</option>
-          ))}
+          <option value="">Select a rule or script...</option>
+          {rules.length > 0 && (
+            <optgroup label="Rules">
+              {rules.map((r) => (
+                <option key={r.name} value={`rule:${r.name}`}>{r.name}</option>
+              ))}
+            </optgroup>
+          )}
+          {scripts.length > 0 && (
+            <optgroup label="Scripts">
+              {scripts.map((s) => (
+                <option key={s.name} value={`script:${s.name}`}>{s.name}</option>
+              ))}
+            </optgroup>
+          )}
         </select>
 
         <label className="text-sm font-medium text-right">URL</label>
@@ -94,10 +122,7 @@ export default function TaskForm({
 
       <div className="flex items-center gap-2 justify-end">
         <Button variant="ghost" onClick={onCancel}>Cancel</Button>
-        <Button
-          onClick={handleSave}
-          disabled={!task.name || !task.ruleName || !task.url}
-        >
+        <Button onClick={() => onSave({ ...task, updatedAt: Date.now() })} disabled={!canSave}>
           Save
         </Button>
       </div>

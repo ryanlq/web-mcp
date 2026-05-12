@@ -24,7 +24,8 @@ interface ScrapeRule {
 interface CrawlTask {
   name: string
   description?: string
-  ruleName: string
+  ruleName?: string
+  scriptName?: string
   url: string
   createdAt: number
   updatedAt: number
@@ -774,6 +775,70 @@ async function executeCrawl(opts: {
   }
 }
 
+interface ScriptTask {
+  name: string
+  description?: string
+  urlPattern: string
+  scriptBody: string
+  timeout?: number
+  createdAt: number
+  updatedAt: number
+}
+
+async function executeScriptTask(
+  script: ScriptTask,
+  url: string,
+  onProgress?: (msg: string) => void
+): Promise<any> {
+  const progress = (msg: string) => onProgress?.(msg)
+  let ownTab = false
+  let tabId: number
+
+  if (url) {
+    progress(`opening ${url}`)
+    const tab = await chrome.tabs.create({ url, active: false })
+    tabId = tab.id!
+    ownTab = true
+    await tabReadyForTab(tabId)
+  } else {
+    const tab = await tabReady()
+    tabId = tab.id!
+  }
+
+  try {
+    progress("executing script")
+    const timeoutSec = script.timeout || 30
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: "MAIN",
+      func: (code: string, ts: number) => {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => reject(new Error("Script timeout")), ts * 1000)
+          try {
+            const fn = new Function("return (async () => { " + code + " })()")
+            fn().then(
+              (val: any) => { clearTimeout(timer); resolve(val) },
+              (err: any) => { clearTimeout(timer); reject(err) }
+            )
+          } catch (e: any) {
+            clearTimeout(timer)
+            reject(e)
+          }
+        })
+      },
+      args: [script.scriptBody, timeoutSec],
+    })
+    const result = results[0]?.result
+    if (result instanceof Error) throw result
+    progress(`done`)
+    return result
+  } finally {
+    if (ownTab) {
+      try { await chrome.tabs.remove(tabId) } catch {}
+    }
+  }
+}
+
 interface TaskExecution {
   taskId: string
   taskName: string
@@ -801,13 +866,9 @@ export function getTaskExecutionByName(taskName: string): TaskExecution | undefi
 }
 
 export async function runCrawlTask(taskName: string, waitForCompletion = false): Promise<any> {
-  const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
-  const task = crawl_tasks.find((t) => t.name === taskName)
+  const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: any[] }>("crawl_tasks")
+  const task = crawl_tasks.find((t: any) => t.name === taskName)
   if (!task) throw new Error(`Task "${taskName}" not found`)
-
-  const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
-  const rule = scrape_rules.find((r) => r.name === task.ruleName)
-  if (!rule) throw new Error(`Rule "${task.ruleName}" not found`)
 
   const taskId = `task_${Date.now().toString(36)}`
   const execution: TaskExecution = {
@@ -819,21 +880,36 @@ export async function runCrawlTask(taskName: string, waitForCompletion = false):
   }
   executions.set(taskId, execution)
 
-  // Run crawl in background
-  executeCrawl({
-    url: task.url,
-    fields: rule.fields,
-    nextPageSelector: rule.nextPageSelector,
-    maxPages: rule.maxPages || 1,
-    maxItems: rule.maxItems,
-    detailLinkSelector: rule.detailLinkSelector,
-    detailFields: rule.detailFields,
-    cacheTTL: rule.enableCache ? (rule.cacheTTL || 86400) : 0,
-    waitForSelector: rule.waitForSelector,
-    onProgress: (msg) => {
-      execution.progress = msg
-    },
-  }).then((result) => {
+  let runPromise: Promise<any>
+
+  if (task.scriptName) {
+    // Script-based path
+    const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+    const script = script_tasks.find((s) => s.name === task.scriptName)
+    if (!script) throw new Error(`Script "${task.scriptName}" not found`)
+    runPromise = executeScriptTask(script, task.url, (msg) => { execution.progress = msg })
+  } else if (task.ruleName) {
+    // Rule-based path (existing)
+    const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
+    const rule = scrape_rules.find((r) => r.name === task.ruleName)
+    if (!rule) throw new Error(`Rule "${task.ruleName}" not found`)
+    runPromise = executeCrawl({
+      url: task.url,
+      fields: rule.fields,
+      nextPageSelector: rule.nextPageSelector,
+      maxPages: rule.maxPages || 1,
+      maxItems: rule.maxItems,
+      detailLinkSelector: rule.detailLinkSelector,
+      detailFields: rule.detailFields,
+      cacheTTL: rule.enableCache ? (rule.cacheTTL || 86400) : 0,
+      waitForSelector: rule.waitForSelector,
+      onProgress: (msg) => { execution.progress = msg },
+    })
+  } else {
+    throw new Error(`Task "${taskName}" has neither ruleName nor scriptName`)
+  }
+
+  runPromise.then((result) => {
     execution.status = "completed"
     execution.progress = "done"
     execution.completedAt = Date.now()
@@ -882,7 +958,7 @@ export async function registerCrawlTaskTools(server: McpServer) {
       const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
       if (!crawl_tasks.length) return TextResult("No tasks saved")
       const text = crawl_tasks
-        .map((t) => `Name: ${t.name}\n${t.description ? `Description: ${t.description}\n` : ""}Rule: ${t.ruleName}\nURL: ${t.url}`)
+        .map((t) => `Name: ${t.name}\n${t.description ? `Description: ${t.description}\n` : ""}${t.scriptName ? `Script: ${t.scriptName}` : `Rule: ${t.ruleName}`}\nURL: ${t.url}`)
         .join("\n\n")
       return TextResult(text)
     }
@@ -1023,6 +1099,112 @@ export async function registerCrawlTaskTools(server: McpServer) {
       })
       const base64 = dataUrl.split(",")[1]
       return ImageResult(base64, `image/${format || "png"}`)
+    }
+  )
+}
+
+export function registerScriptTaskTools(server: McpServer) {
+  server.tool(
+    "script_task_add",
+    "Create or update a JavaScript extraction script. Scripts run in page context (MAIN world) with async/await support. Must return a value.",
+    {
+      name: z.string().describe("Unique script name"),
+      description: z.string().optional().describe("What this script extracts"),
+      urlPattern: z.string().describe("URL pattern (e.g. https://x.com/*)"),
+      scriptBody: z.string().describe("JS function body — async/await OK, must return a value"),
+      timeout: z.number().optional().describe("Timeout in seconds (default: 30)"),
+    },
+    async ({ name, description, urlPattern, scriptBody, timeout }) => {
+      const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+      const now = Date.now()
+      const idx = script_tasks.findIndex((s) => s.name === name)
+      const script: ScriptTask = {
+        name,
+        description,
+        urlPattern,
+        scriptBody,
+        timeout: timeout || 30,
+        createdAt: now,
+        updatedAt: now,
+      }
+      if (idx >= 0) {
+        script.createdAt = script_tasks[idx].createdAt
+        script_tasks[idx] = script
+      } else {
+        script_tasks.push(script)
+      }
+      await setLocal({ script_tasks })
+      return TextResult(`Script "${name}" saved`)
+    }
+  )
+
+  server.tool("script_task_list", "List all saved script tasks", async () => {
+    const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+    if (!script_tasks.length) return TextResult("No scripts saved")
+    const text = script_tasks
+      .map((s) => `Name: ${s.name}\nPattern: ${s.urlPattern}\n${s.description ? `Description: ${s.description}\n` : ""}Timeout: ${s.timeout || 30}s`)
+      .join("\n\n")
+    return TextResult(text)
+  })
+
+  server.tool(
+    "script_task_remove",
+    "Remove a saved script task",
+    { name: z.string().describe("Script name to remove") },
+    async ({ name }) => {
+      const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+      const filtered = script_tasks.filter((s) => s.name !== name)
+      if (filtered.length === script_tasks.length) {
+        return TextResult(`Script "${name}" not found`)
+      }
+      await setLocal({ script_tasks: filtered })
+      return TextResult(`Script "${name}" removed`)
+    }
+  )
+
+  server.tool(
+    "script_task_run",
+    "Execute a saved script task on a URL. Returns a taskId — use crawl_task_status to poll, then crawl_task_result to get data.",
+    {
+      name: z.string().describe("Script task name"),
+      url: z.string().describe("Target URL to run the script on"),
+    },
+    async ({ name, url }) => {
+      // Create a temporary crawl task referencing the script, run it, return taskId
+      const taskId = `script_${Date.now().toString(36)}`
+      const execution: TaskExecution = {
+        taskId,
+        taskName: name,
+        status: "running",
+        progress: "starting...",
+        startedAt: Date.now(),
+      }
+      executions.set(taskId, execution)
+
+      const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+      const script = script_tasks.find((s) => s.name === name)
+      if (!script) {
+        execution.status = "failed"
+        execution.error = `Script "${name}" not found`
+        execution.completedAt = Date.now()
+        return TextResult(JSON.stringify({ taskId, status: "failed", error: execution.error }))
+      }
+
+      executeScriptTask(script, url, (msg) => { execution.progress = msg })
+        .then((result) => {
+          execution.status = "completed"
+          execution.progress = "done"
+          execution.completedAt = Date.now()
+          execution.result = result
+        })
+        .catch((e: any) => {
+          execution.status = "failed"
+          execution.progress = "failed"
+          execution.completedAt = Date.now()
+          execution.error = e.message
+        })
+
+      return TextResult(JSON.stringify({ taskId, status: "running" }))
     }
   )
 }

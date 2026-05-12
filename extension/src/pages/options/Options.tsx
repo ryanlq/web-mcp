@@ -5,6 +5,7 @@ import useStorage from "@/hooks/useStorage"
 import { getLocal, setLocal } from "@/utils/ext"
 import RuleList from "@/components/rules/RuleList"
 import RuleForm from "@/components/rules/RuleForm"
+import ScriptForm, { type ScriptTask } from "@/components/scripts/ScriptForm"
 import ImportExport from "@/components/rules/ImportExport"
 import TaskForm, { type CrawlTask } from "@/components/tasks/TaskForm"
 import type { ScrapeRule } from "@/components/rules/RuleForm"
@@ -212,6 +213,124 @@ const presetTasks: CrawlTask[] = [
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
+  {
+    name: "Twitter/X Timeline",
+    description: "抓取Twitter/X任意用户的最新推文，使用脚本自动滚动加载。适用于用户想了解某推特博主的最新动态时调用。",
+    scriptName: "x-timeline",
+    url: "https://x.com/",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "Reddit Posts",
+    description: "抓取Reddit帖子列表。适用于用户想了解某个subreddit的热门帖子时调用。",
+    scriptName: "reddit-posts",
+    url: "https://www.reddit.com/",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "Hacker News Stories",
+    description: "抓取Hacker News首页故事。使用脚本提取标题、链接、分数和评论数。",
+    scriptName: "hn-stories",
+    url: "https://news.ycombinator.com/",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+]
+
+const presetScripts: ScriptTask[] = [
+  {
+    name: "x-timeline",
+    description: "Twitter/X 推文提取（自动滚动加载）",
+    urlPattern: "https://x.com/*",
+    scriptBody: `const tweets = [];
+const seen = new Set();
+const maxTweets = 20;
+let noNew = 0;
+
+while (tweets.length < maxTweets && noNew < 5) {
+  const articles = document.querySelectorAll('article[data-testid="tweet"]');
+  let added = 0;
+  for (const art of articles) {
+    const linkEl = art.querySelector('a[href*="/status/"]');
+    const href = linkEl?.getAttribute('href') || '';
+    if (seen.has(href)) continue;
+    seen.add(href);
+    added++;
+    tweets.push({
+      text: art.querySelector('[data-testid="tweetText"]')?.textContent?.trim() || '',
+      time: art.querySelector('time')?.getAttribute('datetime') || '',
+      link: href,
+    });
+  }
+  if (tweets.length >= maxTweets) break;
+  if (added === 0) { noNew++; } else { noNew = 0; }
+  window.scrollBy(0, 800);
+  await new Promise(r => setTimeout(r, 1500));
+}
+
+return tweets.slice(0, maxTweets);`,
+    timeout: 60,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "reddit-posts",
+    description: "Reddit 帖子提取",
+    urlPattern: "https://www.reddit.com/*",
+    scriptBody: `const posts = [];
+const seen = new Set();
+
+for (let i = 0; i < 3; i++) {
+  const items = document.querySelectorAll('shreddit-post');
+  items.forEach(el => {
+    const id = el.getAttribute('id') || el.getAttribute('thingid') || '';
+    if (seen.has(id)) return;
+    seen.add(id);
+    posts.push({
+      title: el.getAttribute('post-title') || '',
+      author: el.getAttribute('author') || '',
+      score: el.getAttribute('score') || '',
+      url: el.getAttribute('permalink') || '',
+      comments: el.getAttribute('comment-count') || '',
+    });
+  });
+  if (posts.length >= 20) break;
+  window.scrollBy(0, 800);
+  await new Promise(r => setTimeout(r, 1500));
+}
+
+return posts.slice(0, 20);`,
+    timeout: 30,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "hn-stories",
+    description: "Hacker News 故事提取",
+    urlPattern: "https://news.ycombinator.com/*",
+    scriptBody: `const rows = document.querySelectorAll('tr.athing');
+const stories = [];
+rows.forEach(row => {
+  const titleEl = row.querySelector('.titleline > a');
+  const subtext = row.nextElementSibling;
+  const score = subtext?.querySelector('.score')?.textContent || '';
+  const comments = subtext?.querySelector('a[href*="item"]')?.textContent?.match(/\\d+/)?.[0] || '';
+  if (titleEl) {
+    stories.push({
+      title: titleEl.textContent.trim(),
+      url: titleEl.getAttribute('href'),
+      score,
+      comments,
+    });
+  }
+});
+return stories;`,
+    timeout: 15,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
 ]
 
 async function loadPresets() {
@@ -220,6 +339,13 @@ async function loadPresets() {
   const newRules = presetRules.filter((r) => !existingRuleNames.has(r.name))
   if (newRules.length > 0) {
     await setLocal({ scrape_rules: [...scrape_rules, ...newRules] })
+  }
+
+  const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+  const existingScriptNames = new Set(script_tasks.map((s) => s.name))
+  const newScripts = presetScripts.filter((s) => !existingScriptNames.has(s.name))
+  if (newScripts.length > 0) {
+    await setLocal({ script_tasks: [...script_tasks, ...newScripts] })
   }
 
   const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
@@ -306,8 +432,12 @@ export default function Options() {
   const { crawl_tasks = [] } = useStorage<{ crawl_tasks: CrawlTask[] }>({
     crawl_tasks: [],
   })
+  const { script_tasks = [] } = useStorage<{ script_tasks: ScriptTask[] }>({
+    script_tasks: [],
+  })
   const [editingRule, setEditingRule] = useState<ScrapeRule | null | "new">(null)
   const [editingTask, setEditingTask] = useState<CrawlTask | null | "new">(null)
+  const [editingScript, setEditingScript] = useState<ScriptTask | null | "new">(null)
   const [cacheStats, setCacheStats] = useState<{ count: number; oldestAt: number | null }>({ count: 0, oldestAt: null })
   const { tool_settings: rawToolSettings } = useStorage<{ tool_settings: Partial<ToolSettings> }>({
     tool_settings: defaultToolSettings,
@@ -364,6 +494,24 @@ export default function Options() {
     await setLocal({ crawl_tasks: existing.filter((t) => t.name !== name) })
   }
 
+  const handleSaveScript = async (script: ScriptTask) => {
+    const { script_tasks: existing = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+    const idx = existing.findIndex((s) => s.name === script.name)
+    if (idx >= 0) {
+      script.createdAt = existing[idx].createdAt
+      existing[idx] = script
+    } else {
+      existing.push(script)
+    }
+    await setLocal({ script_tasks: existing })
+    setEditingScript(null)
+  }
+
+  const handleDeleteScript = async (name: string) => {
+    const { script_tasks: existing = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+    await setLocal({ script_tasks: existing.filter((s) => s.name !== name) })
+  }
+
   if (editingRule !== null) {
     return (
       <div className="max-w-2xl mx-auto p-6">
@@ -382,8 +530,21 @@ export default function Options() {
         <TaskForm
           task={editingTask === "new" ? undefined : editingTask}
           rules={scrape_rules}
+          scripts={script_tasks}
           onSave={handleSaveTask}
           onCancel={() => setEditingTask(null)}
+        />
+      </div>
+    )
+  }
+
+  if (editingScript !== null) {
+    return (
+      <div className="max-w-2xl mx-auto p-6">
+        <ScriptForm
+          script={editingScript === "new" ? undefined : editingScript}
+          onSave={handleSaveScript}
+          onCancel={() => setEditingScript(null)}
         />
       </div>
     )
@@ -416,6 +577,46 @@ export default function Options() {
 
       <div className="border-t pt-4">
         <div className="flex items-center justify-between mb-3">
+          <h1 className="text-xl font-semibold">Script Tasks</h1>
+          <Button size="sm" onClick={() => setEditingScript("new")}>
+            <Plus className="size-3" />
+            Add Script
+          </Button>
+        </div>
+        <p className="text-sm text-muted-foreground mb-3">
+          Custom JavaScript scripts for complex SPA sites. Runs in page context with async/await support.
+        </p>
+        {script_tasks.length === 0 && (
+          <p className="text-sm text-muted-foreground">No scripts yet. Click Presets to load defaults, or create one.</p>
+        )}
+        <div className="space-y-2">
+          {script_tasks.map((script) => (
+            <div
+              key={script.name}
+              className="flex items-center gap-3 border rounded-md p-3"
+            >
+              <div className="flex-1 min-w-0">
+                <div className="font-medium text-sm">{script.name}</div>
+                {script.description && (
+                  <div className="text-xs text-muted-foreground truncate">{script.description}</div>
+                )}
+                <div className="text-xs text-muted-foreground truncate">
+                  {script.urlPattern} | {script.timeout || 30}s
+                </div>
+              </div>
+              <Button variant="ghost" size="icon" onClick={() => setEditingScript(script)}>
+                <Pencil className="size-3" />
+              </Button>
+              <Button variant="ghost" size="icon" onClick={() => handleDeleteScript(script.name)}>
+                <Trash2 className="size-3" />
+              </Button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="border-t pt-4">
+        <div className="flex items-center justify-between mb-3">
           <h1 className="text-xl font-semibold">Crawl Tasks</h1>
           <Button size="sm" onClick={() => setEditingTask("new")}>
             <Plus className="size-3" />
@@ -423,7 +624,7 @@ export default function Options() {
           </Button>
         </div>
         <p className="text-sm text-muted-foreground mb-3">
-          Tasks combine a rule with a target URL. Run them from the popup or via MCP with one click.
+          Tasks combine a rule or script with a target URL. Run them from the popup or via MCP with one click.
         </p>
         {crawl_tasks.length === 0 && (
           <p className="text-sm text-muted-foreground">No tasks yet. Create one to get started.</p>
@@ -440,7 +641,7 @@ export default function Options() {
                   <div className="text-xs text-muted-foreground truncate">{task.description}</div>
                 )}
                 <div className="text-xs text-muted-foreground truncate">
-                  Rule: {task.ruleName} | {task.url}
+                  {task.scriptName ? `Script: ${task.scriptName}` : `Rule: ${task.ruleName}`} | {task.url}
                 </div>
               </div>
               <Button variant="ghost" size="icon" onClick={() => setEditingTask(task)}>
@@ -465,6 +666,7 @@ export default function Options() {
         <div className="space-y-2">
           {([
             { key: "task" as const, label: "Task Tools", desc: "crawl_task_run, crawl_task_list, scrape_crawl, scrape, export_data, screenshot (default: on)" },
+            { key: "script" as const, label: "Script Tools", desc: "script_task_add, script_task_list, script_task_remove, script_task_run (default: on)" },
             { key: "page" as const, label: "Page Interaction", desc: "page_snapshot, click, type, press_key, scroll, hover, wait_for" },
             { key: "browser" as const, label: "Browser", desc: "switch-tab, get-tabs, new-tab, remove-tab, wait" },
             { key: "rule" as const, label: "Rule Management", desc: "scrape_rule_add, scrape_rule_list, scrape_rule_remove" },

@@ -14,7 +14,8 @@ import useStorage from "@/hooks/useStorage"
 interface CrawlTask {
   name: string
   description?: string
-  ruleName: string
+  ruleName?: string
+  scriptName?: string
   url: string
 }
 
@@ -100,7 +101,9 @@ function CrawlPanel() {
         <div key={task.name} className="flex items-center gap-2">
           <div className="flex-1 min-w-0">
             <div className="text-sm font-medium truncate">{task.name}</div>
-            <div className="text-xs text-muted-foreground truncate">{task.ruleName}</div>
+            <div className="text-xs text-muted-foreground truncate">
+              {task.scriptName ? `Script: ${task.scriptName}` : `Rule: ${task.ruleName}`}
+            </div>
           </div>
           {done === task.name && !running && (
             <CheckCircle className="size-4 text-green-500" />
