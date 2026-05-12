@@ -470,6 +470,7 @@ export function registerCrawlTools(server: McpServer) {
       let resolvedMaxPages = maxPages
       let resolvedMaxItems: number | undefined
       let resolvedCacheTTL = 0
+      let resolvedWaitForSelector: string | undefined
 
       if (rule) {
         const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
@@ -482,6 +483,7 @@ export function registerCrawlTools(server: McpServer) {
         resolvedMaxPages = found.maxPages || maxPages
         resolvedMaxItems = found.maxItems
         resolvedCacheTTL = found.enableCache ? (found.cacheTTL || 86400) : 0
+        resolvedWaitForSelector = found.waitForSelector
       }
 
       if (!resolvedFields?.length) {
@@ -497,6 +499,7 @@ export function registerCrawlTools(server: McpServer) {
         detailLinkSelector: resolvedDetailLinkSelector,
         detailFields: resolvedDetailFields,
         cacheTTL: resolvedCacheTTL,
+        waitForSelector: resolvedWaitForSelector,
       })
     }
   )
@@ -581,6 +584,7 @@ async function executeCrawl(opts: {
   detailLinkSelector?: string
   detailFields?: any[]
   cacheTTL?: number
+  waitForSelector?: string
   onProgress?: (msg: string) => void
 }): Promise<any> {
   const progress = (msg: string) => opts.onProgress?.(msg)
@@ -596,6 +600,34 @@ async function executeCrawl(opts: {
   } else {
     const tab = await tabReady()
     tabId = tab.id!
+  }
+
+  if (opts.waitForSelector) {
+    progress(`waiting for ${opts.waitForSelector}`)
+    await waitForElement(tabId, opts.waitForSelector, 10000)
+  }
+
+  // For infinite-scroll pages (no pagination), scroll to load more items up to maxItems
+  if (opts.maxItems && !opts.nextPageSelector) {
+    const listField = opts.fields.find((f: any) => f.type === "list")
+    if (listField) {
+      const maxScrolls = 20
+      for (let i = 0; i < maxScrolls; i++) {
+        const countResult = await chrome.scripting.executeScript({
+          target: { tabId },
+          func: (sel: string) => document.querySelectorAll(sel).length,
+          args: [listField.selector],
+        })
+        const count = countResult[0]?.result as number || 0
+        if (count >= opts.maxItems) break
+        progress(`scrolling to load more (${count}/${opts.maxItems})`)
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          func: () => window.scrollBy(0, 800),
+        })
+        await new Promise(r => setTimeout(r, 800))
+      }
+    }
   }
 
   try {
@@ -755,6 +787,19 @@ interface TaskExecution {
 
 const executions = new Map<string, TaskExecution>()
 
+export function getTaskExecution(taskId: string): TaskExecution | undefined {
+  return executions.get(taskId)
+}
+
+export function getTaskExecutionByName(taskName: string): TaskExecution | undefined {
+  for (const exec of executions.values()) {
+    if (exec.taskName === taskName && (exec.status === "running" || exec.status === "completed")) {
+      return exec
+    }
+  }
+  return undefined
+}
+
 export async function runCrawlTask(taskName: string, waitForCompletion = false): Promise<any> {
   const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
   const task = crawl_tasks.find((t) => t.name === taskName)
@@ -784,6 +829,7 @@ export async function runCrawlTask(taskName: string, waitForCompletion = false):
     detailLinkSelector: rule.detailLinkSelector,
     detailFields: rule.detailFields,
     cacheTTL: rule.enableCache ? (rule.cacheTTL || 86400) : 0,
+    waitForSelector: rule.waitForSelector,
     onProgress: (msg) => {
       execution.progress = msg
     },
@@ -1082,6 +1128,19 @@ export function registerScrapeRuleTools(server: McpServer) {
       return TextResult(`Rule "${name}" removed`)
     }
   )
+}
+
+async function waitForElement(tabId: number, selector: string, timeoutMs: number) {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: (sel: string) => !!document.querySelector(sel),
+      args: [selector],
+    })
+    if (result?.result) return
+    await new Promise((r) => setTimeout(r, 500))
+  }
 }
 
 async function tabReadyForTab(tabId: number) {

@@ -61,14 +61,173 @@ const presetRules: ScrapeRule[] = [
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
+  // --- Stock Investment Rules ---
+  {
+    name: "cls-telegraph",
+    urlPattern: "https://www.cls.cn/telegraph*",
+    fields: [
+      {
+        key: "items",
+        selector: ".p-t-20.p-b-20.b-b-w-1",
+        type: "list",
+        fields: [
+          { key: "time", selector: ".telegraph-time-box", type: "text" },
+          { key: "title", selector: "strong", type: "text" },
+          { key: "content", selector: ".c-34304b div", type: "text" },
+        ],
+      },
+    ],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "eastmoney-lhb",
+    urlPattern: "https://stock.eastmoney.com/a/clhbjd*.html",
+    fields: [
+      {
+        key: "items",
+        selector: "div.text",
+        type: "list",
+        fields: [
+          { key: "title", selector: "p.title a", type: "text" },
+          { key: "link", selector: "p.title a", type: "attribute", attribute: "href" },
+          { key: "summary", selector: "p.info", type: "text" },
+          { key: "date", selector: "p.time", type: "text" },
+        ],
+      },
+    ],
+    nextPageSelector: "a[href*='clhbjd_']",
+    maxPages: 3,
+    enableCache: true,
+    cacheTTL: 86400,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "eastmoney-report",
+    urlPattern: "https://data.eastmoney.com/report/*",
+    fields: [
+      {
+        key: "reports",
+        selector: "table.table-model tbody tr",
+        type: "list",
+        fields: [
+          { key: "code", selector: "td:nth-child(2)", type: "text" },
+          { key: "name", selector: "td:nth-child(3)", type: "text" },
+          { key: "title", selector: "td:nth-child(5) a", type: "text" },
+          { key: "link", selector: "td:nth-child(5) a", type: "attribute", attribute: "href" },
+          { key: "rating", selector: "td:nth-child(6)", type: "text" },
+          { key: "ratingChange", selector: "td:nth-child(7)", type: "text" },
+          { key: "broker", selector: "td:nth-child(8)", type: "text" },
+          { key: "industry", selector: "td:nth-child(13)", type: "text" },
+          { key: "date", selector: "td:nth-child(14)", type: "text" },
+        ],
+      },
+    ],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "stcn-news",
+    urlPattern: "https://www.stcn.com/article/list/*.html",
+    fields: [
+      {
+        key: "items",
+        selector: "div.content",
+        type: "list",
+        fields: [
+          { key: "title", selector: "div.tt a", type: "text" },
+          { key: "link", selector: "div.tt a", type: "attribute", attribute: "href" },
+          { key: "summary", selector: "div.text.ellipsis-2", type: "text" },
+          { key: "tags", selector: "div.tags a", type: "list", fields: [
+            { key: "tag", selector: "a", type: "text" },
+          ]},
+          { key: "source", selector: "div.info", type: "text" },
+        ],
+      },
+    ],
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "x-tweets",
+    urlPattern: "https://x.com/*",
+    fields: [
+      {
+        key: "tweets",
+        selector: 'article[data-testid="tweet"]',
+        type: "list",
+        fields: [
+          { key: "text", selector: '[data-testid="tweetText"]', type: "text" },
+          { key: "time", selector: "time", type: "attribute", attribute: "datetime" },
+          { key: "link", selector: 'a[href*="/status/"]', type: "attribute", attribute: "href" },
+        ],
+      },
+    ],
+    maxItems: 10,
+    waitForSelector: 'article[data-testid="tweet"]',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+]
+
+const presetTasks: CrawlTask[] = [
+  {
+    name: "财联社电报",
+    description: "抓取财联社7x24小时实时电报快讯，包括新闻标题、正文和时间。适用于用户想了解最新金融市场快讯、实时资讯时调用。",
+    ruleName: "cls-telegraph",
+    url: "https://www.cls.cn/telegraph",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "东方财富-龙虎榜解读",
+    description: "抓取东方财富网龙虎榜解读文章，包括文章标题、摘要和日期。适用于用户想了解龙虎榜数据、游资动向、主力资金分析时调用。",
+    ruleName: "eastmoney-lhb",
+    url: "https://stock.eastmoney.com/a/clhbjd.html",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "东方财富-研报速递",
+    description: "抓取东方财富网最新券商研报列表，包括股票代码、研报标题、评级、券商名称、行业和日期。适用于用户想了解最新券商研报、机构观点、个股评级变动时调用。",
+    ruleName: "eastmoney-report",
+    url: "https://data.eastmoney.com/report/",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "证券时报-要闻",
+    description: "抓取证券时报网要闻栏目最新新闻，包括新闻标题、摘要、来源和标签。适用于用户想了解最新财经要闻、宏观政策、市场动态时调用。",
+    ruleName: "stcn-news",
+    url: "https://www.stcn.com/article/list/yw.html",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
+  {
+    name: "STOCK调研公社推文",
+    description: "抓取推特博主@STOCK6688的最新推文，包括推文正文、发布时间和链接。适用于用户想了解STOCK调研公社的最新投资观点、行业分析、概念整理时调用。",
+    ruleName: "x-tweets",
+    url: "https://x.com/STOCK6688",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  },
 ]
 
 async function loadPresets() {
   const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
-  const existingNames = new Set(scrape_rules.map((r) => r.name))
-  const newRules = presetRules.filter((r) => !existingNames.has(r.name))
-  if (newRules.length === 0) return
-  await setLocal({ scrape_rules: [...scrape_rules, ...newRules] })
+  const existingRuleNames = new Set(scrape_rules.map((r) => r.name))
+  const newRules = presetRules.filter((r) => !existingRuleNames.has(r.name))
+  if (newRules.length > 0) {
+    await setLocal({ scrape_rules: [...scrape_rules, ...newRules] })
+  }
+
+  const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
+  const existingTaskNames = new Set(crawl_tasks.map((t) => t.name))
+  const newTasks = presetTasks.filter((t) => !existingTaskNames.has(t.name))
+  if (newTasks.length > 0) {
+    await setLocal({ crawl_tasks: [...crawl_tasks, ...newTasks] })
+  }
 }
 
 function HelpPanel() {

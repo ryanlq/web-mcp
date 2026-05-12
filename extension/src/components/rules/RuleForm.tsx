@@ -13,6 +13,7 @@ export interface ScrapeRule {
   detailFields?: ScrapeField[]
   maxPages?: number
   maxItems?: number
+  waitForSelector?: string
   enableCache?: boolean
   cacheTTL?: number
   createdAt: number
@@ -254,6 +255,12 @@ export default function RuleForm({
             onChange={(e) => update({ maxItems: e.target.value ? Number(e.target.value) : undefined })}
             placeholder="all"
             className="w-24"
+          />
+          <label className="text-sm text-right">Wait for selector</label>
+          <Input
+            value={rule.waitForSelector || ""}
+            onChange={(e) => update({ waitForSelector: e.target.value || undefined })}
+            placeholder="e.g. article[data-testid='tweet']"
           />
         </div>
       </details>

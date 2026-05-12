@@ -40,13 +40,33 @@ function CrawlPanel() {
     setDone(null)
     setError(null)
     try {
-      const response = await chrome.runtime.sendMessage({ type: "run_task", taskName: task.name })
-      if (response?.error) {
-        setError(response.error)
-      } else {
-        downloadResult(task.name, response)
-        setDone(task.name)
+      // Start task async — returns immediately
+      const startRes = await chrome.runtime.sendMessage({ type: "run_task", taskName: task.name, async: true })
+      if (startRes?.error) {
+        setError(startRes.error)
+        return
       }
+      // Poll for completion (up to 2 minutes)
+      for (let i = 0; i < 120; i++) {
+        await new Promise(r => setTimeout(r, 1000))
+        const status = await chrome.runtime.sendMessage({ type: "task_status", taskName: task.name })
+        if (!status) continue
+        if (status.status === "completed") {
+          const result = await chrome.runtime.sendMessage({ type: "task_result", taskName: task.name })
+          if (result?.error) {
+            setError(result.error)
+          } else {
+            downloadResult(task.name, result)
+            setDone(task.name)
+          }
+          return
+        }
+        if (status.status === "failed") {
+          setError(status.error || "Task failed")
+          return
+        }
+      }
+      setError("Task timed out")
     } catch (e: any) {
       setError(e.message)
     } finally {
