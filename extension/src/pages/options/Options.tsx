@@ -1,6 +1,17 @@
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { Plus, HelpCircle, Wand2, Trash2, Pencil, Settings } from "lucide-react"
+import { Badge } from "@/components/ui/badge"
+import {
+  Plus,
+  Wand2,
+  Trash2,
+  Pencil,
+  Settings,
+  ListChecks,
+  BookOpen,
+  Code2,
+  FileText,
+} from "lucide-react"
 import useStorage from "@/hooks/useStorage"
 import { getLocal, setLocal } from "@/utils/ext"
 import RuleList from "@/components/rules/RuleList"
@@ -11,6 +22,9 @@ import TaskForm, { type CrawlTask } from "@/components/tasks/TaskForm"
 import type { ScrapeRule } from "@/components/rules/RuleForm"
 import { clearDetailCache, getCacheStats } from "@/bg/tools"
 import { type ToolSettings, defaultToolSettings } from "@/bg/mcp"
+import { version } from "@/manifest"
+
+// ─── Preset Data ────────────────────────────────────────────
 
 const presetRules: ScrapeRule[] = [
   {
@@ -43,7 +57,12 @@ const presetRules: ScrapeRule[] = [
         fields: [
           { key: "user", selector: ".hnuser", type: "text" },
           { key: "text", selector: ".commtext", type: "text" },
-          { key: "time", selector: ".age", type: "attribute", attribute: "title" },
+          {
+            key: "time",
+            selector: ".age",
+            type: "attribute",
+            attribute: "title",
+          },
         ],
       },
     ],
@@ -62,7 +81,6 @@ const presetRules: ScrapeRule[] = [
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
-  // --- Stock Investment Rules ---
   {
     name: "cls-telegraph",
     urlPattern: "https://www.cls.cn/telegraph*",
@@ -91,7 +109,12 @@ const presetRules: ScrapeRule[] = [
         type: "list",
         fields: [
           { key: "title", selector: "p.title a", type: "text" },
-          { key: "link", selector: "p.title a", type: "attribute", attribute: "href" },
+          {
+            key: "link",
+            selector: "p.title a",
+            type: "attribute",
+            attribute: "href",
+          },
           { key: "summary", selector: "p.info", type: "text" },
           { key: "date", selector: "p.time", type: "text" },
         ],
@@ -116,7 +139,12 @@ const presetRules: ScrapeRule[] = [
           { key: "code", selector: "td:nth-child(2)", type: "text" },
           { key: "name", selector: "td:nth-child(3)", type: "text" },
           { key: "title", selector: "td:nth-child(5) a", type: "text" },
-          { key: "link", selector: "td:nth-child(5) a", type: "attribute", attribute: "href" },
+          {
+            key: "link",
+            selector: "td:nth-child(5) a",
+            type: "attribute",
+            attribute: "href",
+          },
           { key: "rating", selector: "td:nth-child(6)", type: "text" },
           { key: "ratingChange", selector: "td:nth-child(7)", type: "text" },
           { key: "broker", selector: "td:nth-child(8)", type: "text" },
@@ -138,11 +166,19 @@ const presetRules: ScrapeRule[] = [
         type: "list",
         fields: [
           { key: "title", selector: "div.tt a", type: "text" },
-          { key: "link", selector: "div.tt a", type: "attribute", attribute: "href" },
+          {
+            key: "link",
+            selector: "div.tt a",
+            type: "attribute",
+            attribute: "href",
+          },
           { key: "summary", selector: "div.text.ellipsis-2", type: "text" },
-          { key: "tags", selector: "div.tags a", type: "list", fields: [
-            { key: "tag", selector: "a", type: "text" },
-          ]},
+          {
+            key: "tags",
+            selector: "div.tags a",
+            type: "list",
+            fields: [{ key: "tag", selector: "a", type: "text" }],
+          },
           { key: "source", selector: "div.info", type: "text" },
         ],
       },
@@ -160,8 +196,18 @@ const presetRules: ScrapeRule[] = [
         type: "list",
         fields: [
           { key: "text", selector: '[data-testid="tweetText"]', type: "text" },
-          { key: "time", selector: "time", type: "attribute", attribute: "datetime" },
-          { key: "link", selector: 'a[href*="/status/"]', type: "attribute", attribute: "href" },
+          {
+            key: "time",
+            selector: "time",
+            type: "attribute",
+            attribute: "datetime",
+          },
+          {
+            key: "link",
+            selector: 'a[href*="/status/"]',
+            type: "attribute",
+            attribute: "href",
+          },
         ],
       },
     ],
@@ -175,7 +221,8 @@ const presetRules: ScrapeRule[] = [
 const presetTasks: CrawlTask[] = [
   {
     name: "财联社电报",
-    description: "抓取财联社7x24小时实时电报快讯，包括新闻标题、正文和时间。适用于用户想了解最新金融市场快讯、实时资讯时调用。",
+    description:
+      "抓取财联社7x24小时实时电报快讯，包括新闻标题、正文和时间。适用于用户想了解最新金融市场快讯、实时资讯时调用。",
     ruleName: "cls-telegraph",
     url: "https://www.cls.cn/telegraph",
     createdAt: Date.now(),
@@ -183,7 +230,8 @@ const presetTasks: CrawlTask[] = [
   },
   {
     name: "东方财富-龙虎榜解读",
-    description: "抓取东方财富网龙虎榜解读文章，包括文章标题、摘要和日期。适用于用户想了解龙虎榜数据、游资动向、主力资金分析时调用。",
+    description:
+      "抓取东方财富网龙虎榜解读文章，包括文章标题、摘要和日期。适用于用户想了解龙虎榜数据、游资动向、主力资金分析时调用。",
     ruleName: "eastmoney-lhb",
     url: "https://stock.eastmoney.com/a/clhbjd.html",
     createdAt: Date.now(),
@@ -191,7 +239,8 @@ const presetTasks: CrawlTask[] = [
   },
   {
     name: "东方财富-研报速递",
-    description: "抓取东方财富网最新券商研报列表，包括股票代码、研报标题、评级、券商名称、行业和日期。适用于用户想了解最新券商研报、机构观点、个股评级变动时调用。",
+    description:
+      "抓取东方财富网最新券商研报列表，包括股票代码、研报标题、评级、券商名称、行业和日期。适用于用户想了解最新券商研报、机构观点、个股评级变动时调用。",
     ruleName: "eastmoney-report",
     url: "https://data.eastmoney.com/report/",
     createdAt: Date.now(),
@@ -199,7 +248,8 @@ const presetTasks: CrawlTask[] = [
   },
   {
     name: "证券时报-要闻",
-    description: "抓取证券时报网要闻栏目最新新闻，包括新闻标题、摘要、来源和标签。适用于用户想了解最新财经要闻、宏观政策、市场动态时调用。",
+    description:
+      "抓取证券时报网要闻栏目最新新闻，包括新闻标题、摘要、来源和标签。适用于用户想了解最新财经要闻、宏观政策、市场动态时调用。",
     ruleName: "stcn-news",
     url: "https://www.stcn.com/article/list/yw.html",
     createdAt: Date.now(),
@@ -207,7 +257,8 @@ const presetTasks: CrawlTask[] = [
   },
   {
     name: "STOCK调研公社推文",
-    description: "抓取推特博主@STOCK6688的最新推文，包括推文正文、发布时间和链接。适用于用户想了解STOCK调研公社的最新投资观点、行业分析、概念整理时调用。",
+    description:
+      "抓取推特博主@STOCK6688的最新推文，包括推文正文、发布时间和链接。适用于用户想了解STOCK调研公社的最新投资观点、行业分析、概念整理时调用。",
     ruleName: "x-tweets",
     url: "https://x.com/STOCK6688",
     createdAt: Date.now(),
@@ -215,7 +266,8 @@ const presetTasks: CrawlTask[] = [
   },
   {
     name: "Twitter/X Timeline",
-    description: "抓取Twitter/X任意用户的最新推文，使用脚本自动滚动加载。适用于用户想了解某推特博主的最新动态时调用。",
+    description:
+      "抓取Twitter/X任意用户的最新推文，使用脚本自动滚动加载。适用于用户想了解某推特博主的最新动态时调用。",
     scriptName: "x-timeline",
     url: "https://x.com/",
     createdAt: Date.now(),
@@ -223,7 +275,8 @@ const presetTasks: CrawlTask[] = [
   },
   {
     name: "Reddit Posts",
-    description: "抓取Reddit帖子列表。适用于用户想了解某个subreddit的热门帖子时调用。",
+    description:
+      "抓取Reddit帖子列表。适用于用户想了解某个subreddit的热门帖子时调用。",
     scriptName: "reddit-posts",
     url: "https://www.reddit.com/",
     createdAt: Date.now(),
@@ -231,7 +284,8 @@ const presetTasks: CrawlTask[] = [
   },
   {
     name: "Hacker News Stories",
-    description: "抓取Hacker News首页故事。使用脚本提取标题、链接、分数和评论数。",
+    description:
+      "抓取Hacker News首页故事。使用脚本提取标题、链接、分数和评论数。",
     scriptName: "hn-stories",
     url: "https://news.ycombinator.com/",
     createdAt: Date.now(),
@@ -334,21 +388,29 @@ return stories;`,
 ]
 
 async function loadPresets() {
-  const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
+  const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>(
+    "scrape_rules"
+  )
   const existingRuleNames = new Set(scrape_rules.map((r) => r.name))
   const newRules = presetRules.filter((r) => !existingRuleNames.has(r.name))
   if (newRules.length > 0) {
     await setLocal({ scrape_rules: [...scrape_rules, ...newRules] })
   }
 
-  const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
+  const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>(
+    "script_tasks"
+  )
   const existingScriptNames = new Set(script_tasks.map((s) => s.name))
-  const newScripts = presetScripts.filter((s) => !existingScriptNames.has(s.name))
+  const newScripts = presetScripts.filter(
+    (s) => !existingScriptNames.has(s.name)
+  )
   if (newScripts.length > 0) {
     await setLocal({ script_tasks: [...script_tasks, ...newScripts] })
   }
 
-  const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
+  const { crawl_tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>(
+    "crawl_tasks"
+  )
   const existingTaskNames = new Set(crawl_tasks.map((t) => t.name))
   const newTasks = presetTasks.filter((t) => !existingTaskNames.has(t.name))
   if (newTasks.length > 0) {
@@ -356,329 +418,390 @@ async function loadPresets() {
   }
 }
 
+// ─── Sidebar Navigation ────────────────────────────────────
+
+type Tab = "tasks" | "library" | "settings"
+type EditingView = "rule" | "script" | "task" | null
+
+function NavItem({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode
+  label: string
+  active: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-2.5 w-full px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+        active
+          ? "bg-primary/90 text-primary-foreground"
+          : "text-muted-foreground hover:bg-accent hover:text-foreground"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+// ─── Help Panel ─────────────────────────────────────────────
+
 function HelpPanel() {
   return (
     <details className="border rounded-md p-4 text-sm text-muted-foreground space-y-3">
       <summary className="flex items-center gap-1.5 font-medium text-foreground cursor-pointer">
-        <HelpCircle className="size-4" />
         How to create a scrape rule
       </summary>
       <div className="mt-3 space-y-3">
         <div>
           <h4 className="font-medium text-foreground">1. Basic fields</h4>
           <ul className="list-disc ml-4 mt-1 space-y-1">
-            <li><strong>Name</strong> — Unique identifier for the rule</li>
-            <li><strong>URL Pattern</strong> — Which pages this rule applies to. Supports wildcards: <code className="bg-muted px-1 rounded">https://news.ycombinator.com/*</code></li>
+            <li>
+              <strong>Name</strong> — Unique identifier for the rule
+            </li>
+            <li>
+              <strong>URL Pattern</strong> — Which pages this rule applies to.
+              Supports wildcards:{" "}
+              <code className="bg-muted px-1 rounded">
+                https://news.ycombinator.com/*
+              </code>
+            </li>
           </ul>
         </div>
         <div>
           <h4 className="font-medium text-foreground">2. Field definitions</h4>
           <p>Each field maps a CSS selector to an output key:</p>
           <ul className="list-disc ml-4 mt-1 space-y-1">
-            <li><strong>key</strong> — Output field name (e.g. <code className="bg-muted px-1 rounded">title</code>)</li>
-            <li><strong>selector</strong> — CSS selector targeting the element (e.g. <code className="bg-muted px-1 rounded">.titleline &gt; a</code>)</li>
-            <li><strong>type</strong> — Extraction method:
-              <ul className="list-disc ml-4 mt-0.5">
-                <li><code>text</code> — Element text content</li>
-                <li><code>html</code> — Element inner HTML</li>
-                <li><code>attribute</code> — Specific attribute value (e.g. href, src)</li>
-                <li><code>list</code> — Repeated items with sub-fields (for tables, lists, grids)</li>
-              </ul>
+            <li>
+              <strong>key</strong> — Output field name (e.g.{" "}
+              <code className="bg-muted px-1 rounded">title</code>)
+            </li>
+            <li>
+              <strong>selector</strong> — CSS selector targeting the element
+            </li>
+            <li>
+              <strong>type</strong> — <code>text</code>, <code>html</code>,{" "}
+              <code>attribute</code>, or <code>list</code> (for repeated items
+              with sub-fields)
             </li>
           </ul>
         </div>
         <div>
-          <h4 className="font-medium text-foreground">3. Pagination (optional)</h4>
-          <p>CSS selector for the "next page" button. The crawler will click it and continue scraping up to <strong>max pages</strong>.</p>
+          <h4 className="font-medium text-foreground">
+            3. Pagination (optional)
+          </h4>
+          <p>
+            CSS selector for the "next page" button. The crawler will click it
+            and continue scraping up to <strong>max pages</strong>.
+          </p>
         </div>
         <div>
-          <h4 className="font-medium text-foreground">4. How to find selectors</h4>
+          <h4 className="font-medium text-foreground">
+            4. How to find selectors
+          </h4>
           <ul className="list-disc ml-4 mt-1 space-y-1">
-            <li>Right-click the target element on a webpage → <strong>Inspect</strong></li>
-            <li>In DevTools, right-click the highlighted element → <strong>Copy → Copy selector</strong></li>
-            <li>Paste the selector into the field. You may need to simplify it (e.g. remove auto-generated classes)</li>
+            <li>
+              Right-click the target element → <strong>Inspect</strong>
+            </li>
+            <li>
+              In DevTools, right-click the highlighted element →{" "}
+              <strong>Copy → Copy selector</strong>
+            </li>
           </ul>
-        </div>
-        <div>
-          <h4 className="font-medium text-foreground">5. Testing</h4>
-          <p>Open the target webpage in another tab, then click <strong>Test</strong> in the form. It will run the scrape on that page and show the results.</p>
-        </div>
-        <div className="border-t pt-2">
-          <h4 className="font-medium text-foreground">Example: Hacker News</h4>
-          <pre className="text-xs bg-muted p-2 rounded overflow-x-auto mt-1">
-{`Name: hn-top
-URL Pattern: https://news.ycombinator.com/*
-
-Fields:
-  - key: items, selector: .titleline, type: list
-    sub-fields:
-      - key: title, selector: a, type: text
-      - key: link,  selector: a, type: attribute (href)
-
-Pagination:
-  Next selector: .morelink
-  Max pages: 5`}
-          </pre>
         </div>
       </div>
     </details>
   )
 }
 
-export default function Options() {
-  const { scrape_rules = [] } = useStorage<{ scrape_rules: ScrapeRule[] }>({
-    scrape_rules: [],
-  })
-  const { crawl_tasks = [] } = useStorage<{ crawl_tasks: CrawlTask[] }>({
-    crawl_tasks: [],
-  })
-  const { script_tasks = [] } = useStorage<{ script_tasks: ScriptTask[] }>({
-    script_tasks: [],
-  })
-  const [editingRule, setEditingRule] = useState<ScrapeRule | null | "new">(null)
-  const [editingTask, setEditingTask] = useState<CrawlTask | null | "new">(null)
-  const [editingScript, setEditingScript] = useState<ScriptTask | null | "new">(null)
-  const [cacheStats, setCacheStats] = useState<{ count: number; oldestAt: number | null }>({ count: 0, oldestAt: null })
-  const { tool_settings: rawToolSettings } = useStorage<{ tool_settings: Partial<ToolSettings> }>({
-    tool_settings: defaultToolSettings,
-  })
-  const toolSettings: ToolSettings = { ...defaultToolSettings, ...rawToolSettings }
+// ─── Tab Panels ─────────────────────────────────────────────
 
-  useEffect(() => {
-    getCacheStats().then(setCacheStats)
-  }, [])
-
-  const toggleToolGroup = async (key: keyof ToolSettings) => {
-    const updated = { ...toolSettings, [key]: !toolSettings[key] }
-    await setLocal({ tool_settings: updated })
-  }
-
-  const handleClearCache = async () => {
-    await clearDetailCache()
-    setCacheStats({ count: 0, oldestAt: null })
-  }
-
-  const handleSaveRule = async (rule: ScrapeRule) => {
-    const { scrape_rules: existing = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
-    const idx = existing.findIndex((r) => r.name === rule.name)
-    if (idx >= 0) {
-      rule.createdAt = existing[idx].createdAt
-      existing[idx] = rule
-    } else {
-      existing.push(rule)
-    }
-    await setLocal({ scrape_rules: existing })
-    setEditingRule(null)
-  }
-
-  const handleDeleteRule = async (name: string) => {
-    const { scrape_rules: existing = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
-    await setLocal({ scrape_rules: existing.filter((r) => r.name !== name) })
-  }
-
-  const handleSaveTask = async (task: CrawlTask) => {
-    const { crawl_tasks: existing = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
-    const idx = existing.findIndex((t) => t.name === task.name)
-    if (idx >= 0) {
-      task.createdAt = existing[idx].createdAt
-      existing[idx] = task
-    } else {
-      existing.push(task)
-    }
-    await setLocal({ crawl_tasks: existing })
-    setEditingTask(null)
-  }
-
-  const handleDeleteTask = async (name: string) => {
-    const { crawl_tasks: existing = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
-    await setLocal({ crawl_tasks: existing.filter((t) => t.name !== name) })
-  }
-
-  const handleSaveScript = async (script: ScriptTask) => {
-    const { script_tasks: existing = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
-    const idx = existing.findIndex((s) => s.name === script.name)
-    if (idx >= 0) {
-      script.createdAt = existing[idx].createdAt
-      existing[idx] = script
-    } else {
-      existing.push(script)
-    }
-    await setLocal({ script_tasks: existing })
-    setEditingScript(null)
-  }
-
-  const handleDeleteScript = async (name: string) => {
-    const { script_tasks: existing = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
-    await setLocal({ script_tasks: existing.filter((s) => s.name !== name) })
-  }
-
-  if (editingRule !== null) {
-    return (
-      <div className="max-w-2xl mx-auto p-6">
-        <RuleForm
-          rule={editingRule === "new" ? undefined : editingRule}
-          onSave={handleSaveRule}
-          onCancel={() => setEditingRule(null)}
-        />
-      </div>
-    )
-  }
-
-  if (editingTask !== null) {
-    return (
-      <div className="max-w-2xl mx-auto p-6">
-        <TaskForm
-          task={editingTask === "new" ? undefined : editingTask}
-          rules={scrape_rules}
-          scripts={script_tasks}
-          onSave={handleSaveTask}
-          onCancel={() => setEditingTask(null)}
-        />
-      </div>
-    )
-  }
-
-  if (editingScript !== null) {
-    return (
-      <div className="max-w-2xl mx-auto p-6">
-        <ScriptForm
-          script={editingScript === "new" ? undefined : editingScript}
-          onSave={handleSaveScript}
-          onCancel={() => setEditingScript(null)}
-        />
-      </div>
-    )
-  }
-
+function TasksPanel({
+  tasks,
+  onAdd,
+  onEdit,
+  onDelete,
+}: {
+  tasks: CrawlTask[]
+  onAdd: () => void
+  onEdit: (task: CrawlTask) => void
+  onDelete: (name: string) => void
+}) {
   return (
-    <div className="max-w-2xl mx-auto p-6 space-y-6">
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-semibold">Scrape Rules</h1>
-          <div className="flex items-center gap-2">
-            <ImportExport onImported={() => setEditingRule(null)} />
-            <Button variant="outline" size="sm" onClick={loadPresets}>
-              <Wand2 className="size-3" />
-              Presets
-            </Button>
-            <Button size="sm" onClick={() => setEditingRule("new")}>
-              <Plus className="size-3" />
-              Add Rule
-            </Button>
-          </div>
-        </div>
-        <HelpPanel />
-        <RuleList
-          rules={scrape_rules}
-          onEdit={(rule) => setEditingRule(rule)}
-          onDelete={handleDeleteRule}
-        />
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold">Crawl Tasks</h2>
+        <Button size="sm" onClick={onAdd}>
+          <Plus className="size-3" />
+          Add Task
+        </Button>
       </div>
-
-      <div className="border-t pt-4">
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-semibold">Script Tasks</h1>
-          <Button size="sm" onClick={() => setEditingScript("new")}>
-            <Plus className="size-3" />
-            Add Script
-          </Button>
+      <p className="text-sm text-muted-foreground mb-4">
+        Tasks combine a rule or script with a target URL. Run them from the
+        popup or via MCP.
+      </p>
+      {tasks.length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">
+          <ListChecks className="size-8 mx-auto mb-2 opacity-40" />
+          <p className="text-sm">No tasks yet. Create one to get started.</p>
         </div>
-        <p className="text-sm text-muted-foreground mb-3">
-          Custom JavaScript scripts for complex SPA sites. Runs in page context with async/await support.
-        </p>
-        {script_tasks.length === 0 && (
-          <p className="text-sm text-muted-foreground">No scripts yet. Click Presets to load defaults, or create one.</p>
-        )}
+      ) : (
         <div className="space-y-2">
-          {script_tasks.map((script) => (
-            <div
-              key={script.name}
-              className="flex items-center gap-3 border rounded-md p-3"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="font-medium text-sm">{script.name}</div>
-                {script.description && (
-                  <div className="text-xs text-muted-foreground truncate">{script.description}</div>
-                )}
-                <div className="text-xs text-muted-foreground truncate">
-                  {script.urlPattern} | {script.timeout || 30}s
-                </div>
-              </div>
-              <Button variant="ghost" size="icon" onClick={() => setEditingScript(script)}>
-                <Pencil className="size-3" />
-              </Button>
-              <Button variant="ghost" size="icon" onClick={() => handleDeleteScript(script.name)}>
-                <Trash2 className="size-3" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <div className="border-t pt-4">
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-semibold">Crawl Tasks</h1>
-          <Button size="sm" onClick={() => setEditingTask("new")}>
-            <Plus className="size-3" />
-            Add Task
-          </Button>
-        </div>
-        <p className="text-sm text-muted-foreground mb-3">
-          Tasks combine a rule or script with a target URL. Run them from the popup or via MCP with one click.
-        </p>
-        {crawl_tasks.length === 0 && (
-          <p className="text-sm text-muted-foreground">No tasks yet. Create one to get started.</p>
-        )}
-        <div className="space-y-2">
-          {crawl_tasks.map((task) => (
+          {tasks.map((task) => (
             <div
               key={task.name}
-              className="flex items-center gap-3 border rounded-md p-3"
+              className="flex items-center gap-3 border rounded-md p-3 hover:bg-accent/30 transition-colors"
             >
               <div className="flex-1 min-w-0">
                 <div className="font-medium text-sm">{task.name}</div>
                 {task.description && (
-                  <div className="text-xs text-muted-foreground truncate">{task.description}</div>
+                  <div className="text-xs text-muted-foreground truncate mt-0.5">
+                    {task.description}
+                  </div>
                 )}
-                <div className="text-xs text-muted-foreground truncate">
-                  {task.scriptName ? `Script: ${task.scriptName}` : `Rule: ${task.ruleName}`} | {task.url}
+                <div className="text-xs text-muted-foreground truncate mt-0.5">
+                  {task.url}
                 </div>
               </div>
-              <Button variant="ghost" size="icon" onClick={() => setEditingTask(task)}>
-                <Pencil className="size-3" />
+              <Badge variant={task.scriptName ? "default" : "outline"}>
+                {task.scriptName ? (
+                  <>
+                    <Code2 className="size-3" /> {task.scriptName}
+                  </>
+                ) : (
+                  <>
+                    <FileText className="size-3" /> {task.ruleName}
+                  </>
+                )}
+              </Badge>
+              <Button variant="ghost" size="icon" onClick={() => onEdit(task)}>
+                <Pencil className="size-3.5" />
               </Button>
-              <Button variant="ghost" size="icon" onClick={() => handleDeleteTask(task.name)}>
-                <Trash2 className="size-3" />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => {
+                  if (confirm(`Delete task "${task.name}"?`))
+                    onDelete(task.name)
+                }}
+              >
+                <Trash2 className="size-3.5 text-destructive" />
               </Button>
             </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
+
+function LibraryPanel({
+  rules,
+  scripts,
+  onAddRule,
+  onEditRule,
+  onDeleteRule,
+  onAddScript,
+  onEditScript,
+  onDeleteScript,
+  onLoadPresets,
+}: {
+  rules: ScrapeRule[]
+  scripts: ScriptTask[]
+  onAddRule: () => void
+  onEditRule: (rule: ScrapeRule) => void
+  onDeleteRule: (name: string) => void
+  onAddScript: () => void
+  onEditScript: (script: ScriptTask) => void
+  onDeleteScript: (name: string) => void
+  onLoadPresets: () => void
+}) {
+  const [subTab, setSubTab] = useState<"rules" | "scripts">("rules")
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-1 border rounded-md p-0.5">
+          <button
+            onClick={() => setSubTab("rules")}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              subTab === "rules"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Rules
+          </button>
+          <button
+            onClick={() => setSubTab("scripts")}
+            className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+              subTab === "scripts"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Scripts
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={onLoadPresets}>
+            <Wand2 className="size-3" />
+            Presets
+          </Button>
+          {subTab === "rules" && (
+            <>
+              <ImportExport onImported={() => {}} />
+              <Button size="sm" onClick={onAddRule}>
+                <Plus className="size-3" />
+                Add Rule
+              </Button>
+            </>
+          )}
+          {subTab === "scripts" && (
+            <Button size="sm" onClick={onAddScript}>
+              <Plus className="size-3" />
+              Add Script
+            </Button>
+          )}
+        </div>
       </div>
 
-      <div className="border-t pt-4">
-        <div className="flex items-center gap-2 mb-3">
+      {subTab === "rules" && (
+        <>
+          <HelpPanel />
+          <div className="mt-4">
+            <RuleList
+              rules={rules}
+              onEdit={onEditRule}
+              onDelete={onDeleteRule}
+            />
+          </div>
+        </>
+      )}
+
+      {subTab === "scripts" && (
+        <>
+          <p className="text-sm text-muted-foreground mb-4">
+            Custom JavaScript scripts for SPA sites. Runs in page context with
+            async/await.
+          </p>
+          {scripts.length === 0 ? (
+            <div className="text-center py-16 text-muted-foreground">
+              <Code2 className="size-8 mx-auto mb-2 opacity-40" />
+              <p className="text-sm">
+                No scripts yet. Click Presets to load defaults.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {scripts.map((script) => (
+                <div
+                  key={script.name}
+                  className="flex items-center gap-3 border rounded-md p-3 hover:bg-accent/30 transition-colors"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm">{script.name}</div>
+                    {script.description && (
+                      <div className="text-xs text-muted-foreground truncate mt-0.5">
+                        {script.description}
+                      </div>
+                    )}
+                    <div className="text-xs text-muted-foreground truncate mt-0.5">
+                      {script.urlPattern} &middot; {script.timeout || 30}s
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => onEditScript(script)}
+                  >
+                    <Pencil className="size-3.5" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      if (confirm(`Delete script "${script.name}"?`))
+                        onDeleteScript(script.name)
+                    }}
+                  >
+                    <Trash2 className="size-3.5 text-destructive" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function SettingsPanel({
+  toolSettings,
+  onToggleTool,
+  cacheStats,
+  onClearCache,
+}: {
+  toolSettings: ToolSettings
+  onToggleTool: (key: keyof ToolSettings) => void
+  cacheStats: { count: number; oldestAt: number | null }
+  onClearCache: () => void
+}) {
+  const toolGroups = [
+    {
+      key: "task" as const,
+      label: "Task Tools",
+      desc: "crawl_task_run, scrape_crawl, scrape, export_data, screenshot",
+    },
+    {
+      key: "script" as const,
+      label: "Script Tools",
+      desc: "script_task_add, script_task_list, script_task_run",
+    },
+    {
+      key: "page" as const,
+      label: "Page Interaction",
+      desc: "page_snapshot, click, type, scroll, hover, wait_for",
+    },
+    {
+      key: "browser" as const,
+      label: "Browser",
+      desc: "switch-tab, get-tabs, new-tab, remove-tab",
+    },
+    {
+      key: "rule" as const,
+      label: "Rule Management",
+      desc: "scrape_rule_add, scrape_rule_list, scrape_rule_remove",
+    },
+  ]
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <div className="flex items-center gap-2 mb-4">
           <Settings className="size-4" />
-          <h1 className="text-xl font-semibold">MCP Tool Settings</h1>
+          <h2 className="text-lg font-semibold">MCP Tool Settings</h2>
         </div>
-        <p className="text-sm text-muted-foreground mb-3">
-          Control which tool groups are exposed via MCP. Changes take effect on next MCP connection.
+        <p className="text-sm text-muted-foreground mb-4">
+          Control which tool groups are exposed via MCP. Changes take effect on
+          next connection.
         </p>
         <div className="space-y-2">
-          {([
-            { key: "task" as const, label: "Task Tools", desc: "crawl_task_run, crawl_task_list, scrape_crawl, scrape, export_data, screenshot (default: on)" },
-            { key: "script" as const, label: "Script Tools", desc: "script_task_add, script_task_list, script_task_remove, script_task_run (default: on)" },
-            { key: "page" as const, label: "Page Interaction", desc: "page_snapshot, click, type, press_key, scroll, hover, wait_for" },
-            { key: "browser" as const, label: "Browser", desc: "switch-tab, get-tabs, new-tab, remove-tab, wait" },
-            { key: "rule" as const, label: "Rule Management", desc: "scrape_rule_add, scrape_rule_list, scrape_rule_remove" },
-          ]).map(({ key, label, desc }) => (
+          {toolGroups.map(({ key, label, desc }) => (
             <label
               key={key}
-              className="flex items-start gap-3 border rounded-md p-3 cursor-pointer hover:bg-muted/50"
+              className="flex items-start gap-3 border rounded-md p-3 cursor-pointer hover:bg-accent/30 transition-colors"
             >
               <input
                 type="checkbox"
                 checked={toolSettings[key]}
-                onChange={() => toggleToolGroup(key)}
+                onChange={() => onToggleTool(key)}
                 className="mt-0.5"
               />
               <div>
@@ -690,20 +813,280 @@ export default function Options() {
         </div>
       </div>
 
-      <div className="border-t pt-4">
-        <div className="flex items-center justify-between mb-3">
-          <h1 className="text-xl font-semibold">Detail Page Cache</h1>
-          <Button variant="outline" size="sm" onClick={handleClearCache} disabled={cacheStats.count === 0}>
+      <div className="border-t pt-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold">Detail Page Cache</h2>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onClearCache}
+            disabled={cacheStats.count === 0}
+          >
             <Trash2 className="size-3" />
-            Clear Cache
+            Clear
           </Button>
         </div>
         <p className="text-sm text-muted-foreground">
           {cacheStats.count > 0
-            ? `${cacheStats.count} cached page${cacheStats.count > 1 ? "s" : ""}${cacheStats.oldestAt ? ` (oldest: ${new Date(cacheStats.oldestAt).toLocaleDateString()})` : ""}`
+            ? `${cacheStats.count} cached page${
+                cacheStats.count > 1 ? "s" : ""
+              }${
+                cacheStats.oldestAt
+                  ? ` (oldest: ${new Date(
+                      cacheStats.oldestAt
+                    ).toLocaleDateString()})`
+                  : ""
+              }`
             : "No cached pages"}
         </p>
       </div>
+    </div>
+  )
+}
+
+// ─── Main Options Layout ────────────────────────────────────
+
+export default function Options() {
+  const { scrape_rules = [] } = useStorage<{ scrape_rules: ScrapeRule[] }>({
+    scrape_rules: [],
+  })
+  const { crawl_tasks = [] } = useStorage<{ crawl_tasks: CrawlTask[] }>({
+    crawl_tasks: [],
+  })
+  const { script_tasks = [] } = useStorage<{ script_tasks: ScriptTask[] }>({
+    script_tasks: [],
+  })
+  const { tool_settings: rawToolSettings } = useStorage<{
+    tool_settings: Partial<ToolSettings>
+  }>({
+    tool_settings: defaultToolSettings,
+  })
+  const toolSettings: ToolSettings = {
+    ...defaultToolSettings,
+    ...rawToolSettings,
+  }
+
+  const [tab, setTab] = useState<Tab>("tasks")
+  const [editingView, setEditingView] = useState<EditingView>(null)
+  const [editingData, setEditingData] = useState<
+    ScrapeRule | ScriptTask | CrawlTask | null
+  >(null)
+  const [cacheStats, setCacheStats] = useState<{
+    count: number
+    oldestAt: number | null
+  }>({ count: 0, oldestAt: null })
+
+  useEffect(() => {
+    getCacheStats().then(setCacheStats)
+  }, [])
+
+  // ─── Handlers ───
+
+  const toggleToolGroup = async (key: keyof ToolSettings) => {
+    const updated = { ...toolSettings, [key]: !toolSettings[key] }
+    await setLocal({ tool_settings: updated })
+  }
+
+  const handleClearCache = async () => {
+    await clearDetailCache()
+    setCacheStats({ count: 0, oldestAt: null })
+  }
+
+  const startEdit = (
+    view: EditingView,
+    data?: ScrapeRule | ScriptTask | CrawlTask
+  ) => {
+    setEditingView(view)
+    setEditingData(data || null)
+  }
+
+  const cancelEdit = () => {
+    setEditingView(null)
+    setEditingData(null)
+  }
+
+  const handleSaveRule = async (rule: ScrapeRule) => {
+    const { scrape_rules: existing = [] } = await getLocal<{
+      scrape_rules: ScrapeRule[]
+    }>("scrape_rules")
+    const idx = existing.findIndex((r) => r.name === rule.name)
+    if (idx >= 0) {
+      rule.createdAt = existing[idx].createdAt
+      existing[idx] = rule
+    } else {
+      existing.push(rule)
+    }
+    await setLocal({ scrape_rules: existing })
+    cancelEdit()
+  }
+
+  const handleDeleteRule = async (name: string) => {
+    const { scrape_rules: existing = [] } = await getLocal<{
+      scrape_rules: ScrapeRule[]
+    }>("scrape_rules")
+    await setLocal({ scrape_rules: existing.filter((r) => r.name !== name) })
+  }
+
+  const handleSaveTask = async (task: CrawlTask) => {
+    const { crawl_tasks: existing = [] } = await getLocal<{
+      crawl_tasks: CrawlTask[]
+    }>("crawl_tasks")
+    const idx = existing.findIndex((t) => t.name === task.name)
+    if (idx >= 0) {
+      task.createdAt = existing[idx].createdAt
+      existing[idx] = task
+    } else {
+      existing.push(task)
+    }
+    await setLocal({ crawl_tasks: existing })
+    cancelEdit()
+  }
+
+  const handleDeleteTask = async (name: string) => {
+    const { crawl_tasks: existing = [] } = await getLocal<{
+      crawl_tasks: CrawlTask[]
+    }>("crawl_tasks")
+    await setLocal({ crawl_tasks: existing.filter((t) => t.name !== name) })
+  }
+
+  const handleSaveScript = async (script: ScriptTask) => {
+    const { script_tasks: existing = [] } = await getLocal<{
+      script_tasks: ScriptTask[]
+    }>("script_tasks")
+    const idx = existing.findIndex((s) => s.name === script.name)
+    if (idx >= 0) {
+      script.createdAt = existing[idx].createdAt
+      existing[idx] = script
+    } else {
+      existing.push(script)
+    }
+    await setLocal({ script_tasks: existing })
+    cancelEdit()
+  }
+
+  const handleDeleteScript = async (name: string) => {
+    const { script_tasks: existing = [] } = await getLocal<{
+      script_tasks: ScriptTask[]
+    }>("script_tasks")
+    await setLocal({ script_tasks: existing.filter((s) => s.name !== name) })
+  }
+
+  // ─── Render ───
+
+  const editingRuleData =
+    editingView === "rule" ? (editingData as ScrapeRule | null) : undefined
+  const editingScriptData =
+    editingView === "script" ? (editingData as ScriptTask | null) : undefined
+  const editingTaskData =
+    editingView === "task" ? (editingData as CrawlTask | null) : undefined
+
+  return (
+    <div className="flex h-screen">
+      {/* Sidebar */}
+      <nav className="w-48 shrink-0 border-r bg-muted/30 flex flex-col">
+        <div className="p-4 pb-2">
+          <div className="text-base font-bold">Web MCP</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">
+            v{version}
+          </div>
+        </div>
+        <div className="px-3 py-2 space-y-1 flex-1">
+          <NavItem
+            icon={<ListChecks className="size-4" />}
+            label="Tasks"
+            active={tab === "tasks" && !editingView}
+            onClick={() => {
+              setTab("tasks")
+              cancelEdit()
+            }}
+          />
+          <NavItem
+            icon={<BookOpen className="size-4" />}
+            label="Library"
+            active={tab === "library" && !editingView}
+            onClick={() => {
+              setTab("library")
+              cancelEdit()
+            }}
+          />
+          <NavItem
+            icon={<Settings className="size-4" />}
+            label="Settings"
+            active={tab === "settings" && !editingView}
+            onClick={() => {
+              setTab("settings")
+              cancelEdit()
+            }}
+          />
+        </div>
+        <div className="p-4 pt-2 border-t">
+          <a
+            href="https://web-mcp.ziziyi.com/docs"
+            target="_blank"
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            Docs & Help
+          </a>
+        </div>
+      </nav>
+
+      {/* Content */}
+      <main className="flex-1 overflow-auto">
+        <div className="p-6 max-w-3xl mx-auto">
+          {editingView === "rule" && (
+            <RuleForm
+              rule={editingRuleData || undefined}
+              onSave={handleSaveRule}
+              onCancel={cancelEdit}
+            />
+          )}
+          {editingView === "script" && (
+            <ScriptForm
+              script={editingScriptData || undefined}
+              onSave={handleSaveScript}
+              onCancel={cancelEdit}
+            />
+          )}
+          {editingView === "task" && (
+            <TaskForm
+              task={editingTaskData || undefined}
+              rules={scrape_rules}
+              scripts={script_tasks}
+              onSave={handleSaveTask}
+              onCancel={cancelEdit}
+            />
+          )}
+          {!editingView && tab === "tasks" && (
+            <TasksPanel
+              tasks={crawl_tasks}
+              onAdd={() => startEdit("task")}
+              onEdit={(task) => startEdit("task", task)}
+              onDelete={handleDeleteTask}
+            />
+          )}
+          {!editingView && tab === "library" && (
+            <LibraryPanel
+              rules={scrape_rules}
+              scripts={script_tasks}
+              onAddRule={() => startEdit("rule")}
+              onEditRule={(rule) => startEdit("rule", rule)}
+              onDeleteRule={handleDeleteRule}
+              onAddScript={() => startEdit("script")}
+              onEditScript={(script) => startEdit("script", script)}
+              onDeleteScript={handleDeleteScript}
+              onLoadPresets={loadPresets}
+            />
+          )}
+          {!editingView && tab === "settings" && (
+            <SettingsPanel
+              toolSettings={toolSettings}
+              onToggleTool={toggleToolGroup}
+              cacheStats={cacheStats}
+              onClearCache={handleClearCache}
+            />
+          )}
+        </div>
+      </main>
     </div>
   )
 }

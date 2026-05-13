@@ -351,14 +351,19 @@ export default function RuleForm({
       </div>
 
       {testResult && (
-        <div className="border rounded-md p-3 bg-muted">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-sm font-medium">Test Result</span>
-            <Button variant="ghost" size="sm" onClick={() => setTestResult(null)}>
+        <div className="rounded-md overflow-hidden border">
+          <div className="flex items-center justify-between px-3 py-2 bg-zinc-800">
+            <span className="text-xs font-medium text-zinc-300">Test Result</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setTestResult(null)}
+              className="text-zinc-400 hover:text-zinc-200 h-6"
+            >
               Close
             </Button>
           </div>
-          <pre className="text-xs overflow-auto max-h-64 whitespace-pre-wrap">
+          <pre className="bg-zinc-900 text-zinc-200 p-3 text-xs overflow-auto max-h-64 whitespace-pre-wrap font-mono">
             {testResult}
           </pre>
         </div>
