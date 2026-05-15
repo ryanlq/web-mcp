@@ -27,6 +27,7 @@ interface CrawlTask {
   ruleName?: string
   scriptName?: string
   url: string
+  exposeToMcp?: boolean
   createdAt: number
   updatedAt: number
 }
@@ -78,66 +79,6 @@ export function registerBrowserTools(server: McpServer) {
     return TextResult("Done")
   })
 
-  server.tool(
-    "screenshot",
-    "Capture a screenshot of the current tab",
-    {
-      format: z.enum(["png", "jpeg"]).optional().describe("Image format (default: png)"),
-      quality: z.number().min(1).max(100).optional().describe("Image quality for jpeg (1-100)"),
-    },
-    async ({ format, quality }) => {
-      const tab = await tabReady()
-      const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId!, {
-        format: format || "png",
-        quality,
-      })
-      const base64 = dataUrl.split(",")[1]
-      return ImageResult(base64, `image/${format || "png"}`)
-    }
-  )
-
-  server.tool(
-    "export_data",
-    "Export data as a file download (JSON or CSV)",
-    {
-      data: z.string().describe("Data to export (JSON string)"),
-      filename: z.string().describe("Output filename (e.g. results.json, data.csv)"),
-      format: z.enum(["json", "csv"]).default("json").describe("Export format"),
-    },
-    async ({ data, filename, format }) => {
-      let content: string
-      let mimeType: string
-
-      if (format === "csv") {
-        const parsed = JSON.parse(data)
-        if (!Array.isArray(parsed)) return TextResult("Error: CSV export requires a JSON array")
-        if (parsed.length === 0) return TextResult("Error: empty array, nothing to export")
-        const keys = Object.keys(parsed[0])
-        const rows = [keys.join(",")]
-        for (const item of parsed) {
-          rows.push(
-            keys
-              .map((k) => {
-                const val = String(item[k] ?? "")
-                return val.includes(",") || val.includes('"')
-                  ? `"${val.replace(/"/g, '""')}"`
-                  : val
-              })
-              .join(",")
-          )
-        }
-        content = rows.join("\n")
-        mimeType = "text/csv"
-      } else {
-        content = data
-        mimeType = "application/json"
-      }
-
-      const dataUrl = `data:${mimeType};charset=utf-8,${encodeURIComponent(content)}`
-      await chrome.downloads.download({ url: dataUrl, filename })
-      return TextResult(`Exported ${filename}`)
-    }
-  )
 }
 
 export function registerPageTools(server: McpServer) {
@@ -346,75 +287,6 @@ export function registerPageTools(server: McpServer) {
     }
   )
 
-  const scrapeFieldSchema: z.ZodTypeAny = z.lazy(() =>
-    z.object({
-      key: z.string().describe("Output field name"),
-      selector: z
-        .string()
-        .describe("CSS selector to locate the element(s)"),
-      type: z
-        .enum(["text", "html", "attribute", "list"])
-        .default("text")
-        .describe(
-          "text=textContent, html=innerHTML, attribute=specific attr, list=repeated items with sub-fields"
-        ),
-      attribute: z
-        .string()
-        .optional()
-        .describe("Attribute name when type=attribute (e.g. href, src)"),
-      fields: z
-        .array(scrapeFieldSchema)
-        .optional()
-        .describe("Sub-fields when type=list"),
-    })
-  )
-
-  server.tool(
-    "scrape",
-    "Extract structured data from the current page using CSS selectors",
-    {
-      fields: z
-        .array(scrapeFieldSchema)
-        .optional()
-        .describe("Array of field definitions describing what to extract"),
-      rule: z
-        .string()
-        .optional()
-        .describe("Use a saved rule by name"),
-      auto_match: z
-        .boolean()
-        .optional()
-        .describe("Auto-match a saved rule by current page URL"),
-    },
-    async ({ fields, rule, auto_match }) => {
-      let resolvedFields = fields
-
-      if (rule) {
-        const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
-        const found = scrape_rules.find((r) => r.name === rule)
-        if (!found) return TextResult(`Rule "${rule}" not found`)
-        resolvedFields = found.fields
-      } else if (auto_match) {
-        const tab = await tabReady()
-        const url = tab.url || ""
-        const { scrape_rules = [] } = await getLocal<{ scrape_rules: ScrapeRule[] }>("scrape_rules")
-        const matched = scrape_rules.find((r) => matchUrl(url, r.urlPattern))
-        if (!matched) return TextResult(`No matching rule for ${url}`)
-        resolvedFields = matched.fields
-      }
-
-      if (!resolvedFields?.length) {
-        return TextResult("Error: provide fields, rule name, or set auto_match=true")
-      }
-
-      const tab = await tabReady()
-      return msgInvoker.invoke({
-        tabId: tab.id,
-        func: InvokerFunc.CallTools,
-        args: ["scrape", { fields: JSON.stringify(resolvedFields) }],
-      })
-    }
-  )
 }
 
 export function registerCrawlTools(server: McpServer) {
@@ -933,13 +805,14 @@ export async function runCrawlTask(taskName: string, waitForCompletion = false):
 }
 
 export async function registerCrawlTaskTools(server: McpServer) {
-  // Build dynamic description with current task list
+  // Build dynamic description — only include tasks with exposeToMcp enabled
   const { crawl_tasks: tasks = [] } = await getLocal<{ crawl_tasks: CrawlTask[] }>("crawl_tasks")
-  const taskListStr = tasks.length
-    ? "\n\nAvailable tasks:\n" + tasks.map((t) =>
-        `- "${t.name}": ${t.description || `Scrape ${t.url} using rule "${t.ruleName}"`}`
+  const exposed = tasks.filter((t) => t.exposeToMcp !== false)
+  const taskListStr = exposed.length
+    ? "\n\nAvailable tasks:\n" + exposed.map((t) =>
+        `- "${t.name}": ${t.description || `Scrape ${t.url} using ${t.scriptName ? `script "${t.scriptName}"` : `rule "${t.ruleName}"`}`}`
       ).join("\n")
-    : "\n\nNo tasks configured yet. Use crawl_task_list after creating tasks."
+    : "\n\nNo tasks exposed to MCP. Use crawl_task_list to see all tasks."
 
   server.tool(
     "crawl_task_run",
@@ -1003,23 +876,24 @@ export async function registerCrawlTaskTools(server: McpServer) {
     }
   )
 
-  // Core tools always available with task group
+}
+
+export function registerScrapeTools(server: McpServer) {
+  const scrapeFieldSchema: z.ZodTypeAny = z.lazy(() =>
+    z.object({
+      key: z.string().describe("Output field name"),
+      selector: z.string().describe("CSS selector"),
+      type: z.enum(["text", "html", "attribute", "list"]).default("text"),
+      attribute: z.string().optional(),
+      fields: z.array(z.lazy(() => z.any())).optional(),
+    })
+  )
+
   server.tool(
     "scrape",
     "Extract structured data from the current active browser tab using CSS selectors. Use when you need to quickly scrape the page the user is currently viewing. Provide fields array with CSS selectors, or reference a saved rule by name, or set auto_match=true to auto-detect a rule matching the current URL.",
     {
-      fields: z
-        .array(z.lazy(() =>
-          z.object({
-            key: z.string().describe("Output field name"),
-            selector: z.string().describe("CSS selector"),
-            type: z.enum(["text", "html", "attribute", "list"]).default("text"),
-            attribute: z.string().optional(),
-            fields: z.array(z.lazy(() => z.any())).optional(),
-          })
-        ))
-        .optional()
-        .describe("Field definitions"),
+      fields: z.array(scrapeFieldSchema).optional().describe("Field definitions"),
       rule: z.string().optional().describe("Use a saved rule by name"),
       auto_match: z.boolean().optional().describe("Auto-match a saved rule by current page URL"),
     },
@@ -1162,51 +1036,6 @@ export function registerScriptTaskTools(server: McpServer) {
     }
   )
 
-  server.tool(
-    "script_task_run",
-    "Execute a saved script task on a URL. Returns a taskId — use crawl_task_status to poll, then crawl_task_result to get data.",
-    {
-      name: z.string().describe("Script task name"),
-      url: z.string().describe("Target URL to run the script on"),
-    },
-    async ({ name, url }) => {
-      // Create a temporary crawl task referencing the script, run it, return taskId
-      const taskId = `script_${Date.now().toString(36)}`
-      const execution: TaskExecution = {
-        taskId,
-        taskName: name,
-        status: "running",
-        progress: "starting...",
-        startedAt: Date.now(),
-      }
-      executions.set(taskId, execution)
-
-      const { script_tasks = [] } = await getLocal<{ script_tasks: ScriptTask[] }>("script_tasks")
-      const script = script_tasks.find((s) => s.name === name)
-      if (!script) {
-        execution.status = "failed"
-        execution.error = `Script "${name}" not found`
-        execution.completedAt = Date.now()
-        return TextResult(JSON.stringify({ taskId, status: "failed", error: execution.error }))
-      }
-
-      executeScriptTask(script, url, (msg) => { execution.progress = msg })
-        .then((result) => {
-          execution.status = "completed"
-          execution.progress = "done"
-          execution.completedAt = Date.now()
-          execution.result = result
-        })
-        .catch((e: any) => {
-          execution.status = "failed"
-          execution.progress = "failed"
-          execution.completedAt = Date.now()
-          execution.error = e.message
-        })
-
-      return TextResult(JSON.stringify({ taskId, status: "running" }))
-    }
-  )
 }
 
 export function registerScrapeRuleTools(server: McpServer) {

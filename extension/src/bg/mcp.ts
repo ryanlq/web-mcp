@@ -1,13 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { Transport } from "@modelcontextprotocol/sdk/shared/transport.js"
 import { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js"
-import { registerBrowserTools, registerPageTools, registerScrapeRuleTools, registerCrawlTools, registerCrawlTaskTools, registerScriptTaskTools, insiderTools } from "./tools"
+import { registerBrowserTools, registerPageTools, registerScrapeRuleTools, registerCrawlTools, registerCrawlTaskTools, registerScriptTaskTools, registerScrapeTools, insiderTools } from "./tools"
 import { getLocal } from "@/utils/ext"
 import { Subject } from "rxjs"
 import { version } from "@/manifest"
 
 export interface ToolSettings {
   task: boolean
+  scrape: boolean
   page: boolean
   browser: boolean
   rule: boolean
@@ -16,6 +17,7 @@ export interface ToolSettings {
 
 export const defaultToolSettings: ToolSettings = {
   task: true,
+  scrape: true,
   page: false,
   browser: false,
   rule: false,
@@ -81,6 +83,9 @@ export async function createMCPServer() {
   if (settings.task) {
     registerCrawlTools(server)
     await registerCrawlTaskTools(server)
+  }
+  if (settings.scrape) {
+    registerScrapeTools(server)
   }
   if (settings.page) {
     registerPageTools(server)

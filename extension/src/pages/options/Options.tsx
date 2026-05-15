@@ -225,6 +225,7 @@ const presetTasks: CrawlTask[] = [
       "抓取财联社7x24小时实时电报快讯，包括新闻标题、正文和时间。适用于用户想了解最新金融市场快讯、实时资讯时调用。",
     ruleName: "cls-telegraph",
     url: "https://www.cls.cn/telegraph",
+    exposeToMcp: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -234,6 +235,7 @@ const presetTasks: CrawlTask[] = [
       "抓取东方财富网龙虎榜解读文章，包括文章标题、摘要和日期。适用于用户想了解龙虎榜数据、游资动向、主力资金分析时调用。",
     ruleName: "eastmoney-lhb",
     url: "https://stock.eastmoney.com/a/clhbjd.html",
+    exposeToMcp: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -243,6 +245,7 @@ const presetTasks: CrawlTask[] = [
       "抓取东方财富网最新券商研报列表，包括股票代码、研报标题、评级、券商名称、行业和日期。适用于用户想了解最新券商研报、机构观点、个股评级变动时调用。",
     ruleName: "eastmoney-report",
     url: "https://data.eastmoney.com/report/",
+    exposeToMcp: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -252,6 +255,7 @@ const presetTasks: CrawlTask[] = [
       "抓取证券时报网要闻栏目最新新闻，包括新闻标题、摘要、来源和标签。适用于用户想了解最新财经要闻、宏观政策、市场动态时调用。",
     ruleName: "stcn-news",
     url: "https://www.stcn.com/article/list/yw.html",
+    exposeToMcp: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -261,6 +265,7 @@ const presetTasks: CrawlTask[] = [
       "抓取推特博主@STOCK6688的最新推文，包括推文正文、发布时间和链接。适用于用户想了解STOCK调研公社的最新投资观点、行业分析、概念整理时调用。",
     ruleName: "x-tweets",
     url: "https://x.com/STOCK6688",
+    exposeToMcp: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -270,6 +275,7 @@ const presetTasks: CrawlTask[] = [
       "抓取Twitter/X任意用户的最新推文，使用脚本自动滚动加载。适用于用户想了解某推特博主的最新动态时调用。",
     scriptName: "x-timeline",
     url: "https://x.com/",
+    exposeToMcp: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -279,6 +285,7 @@ const presetTasks: CrawlTask[] = [
       "抓取Reddit帖子列表。适用于用户想了解某个subreddit的热门帖子时调用。",
     scriptName: "reddit-posts",
     url: "https://www.reddit.com/",
+    exposeToMcp: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -288,6 +295,7 @@ const presetTasks: CrawlTask[] = [
       "抓取Hacker News首页故事。使用脚本提取标题、链接、分数和评论数。",
     scriptName: "hn-stories",
     url: "https://news.ycombinator.com/",
+    exposeToMcp: true,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   },
@@ -526,11 +534,13 @@ function TasksPanel({
   onAdd,
   onEdit,
   onDelete,
+  onToggleMcp,
 }: {
   tasks: CrawlTask[]
   onAdd: () => void
   onEdit: (task: CrawlTask) => void
   onDelete: (name: string) => void
+  onToggleMcp: (name: string) => void
 }) {
   return (
     <div>
@@ -579,6 +589,15 @@ function TasksPanel({
                   </>
                 )}
               </Badge>
+              <label
+                className="flex items-center gap-1 cursor-pointer"
+                title={task.exposeToMcp !== false ? "Exposed to MCP" : "Hidden from MCP"}
+                onClick={(e) => { e.stopPropagation(); onToggleMcp(task.name) }}
+              >
+                <div className={`w-8 h-4 rounded-full transition-colors relative ${task.exposeToMcp !== false ? "bg-emerald-500" : "bg-zinc-600"}`}>
+                  <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${task.exposeToMcp !== false ? "translate-x-4" : "translate-x-0.5"}`} />
+                </div>
+              </label>
               <Button variant="ghost" size="icon" onClick={() => onEdit(task)}>
                 <Pencil className="size-3.5" />
               </Button>
@@ -757,12 +776,17 @@ function SettingsPanel({
     {
       key: "task" as const,
       label: "Task Tools",
-      desc: "crawl_task_run, scrape_crawl, scrape, export_data, screenshot",
+      desc: "crawl_task_run, crawl_task_list, crawl_task_status, crawl_task_result, scrape_crawl",
+    },
+    {
+      key: "scrape" as const,
+      label: "Scrape Tools",
+      desc: "scrape, export_data, screenshot",
     },
     {
       key: "script" as const,
       label: "Script Tools",
-      desc: "script_task_add, script_task_list, script_task_run",
+      desc: "script_task_add, script_task_list, script_task_remove",
     },
     {
       key: "page" as const,
@@ -949,6 +973,17 @@ export default function Options() {
     await setLocal({ crawl_tasks: existing.filter((t) => t.name !== name) })
   }
 
+  const handleToggleMcp = async (name: string) => {
+    const { crawl_tasks: existing = [] } = await getLocal<{
+      crawl_tasks: CrawlTask[]
+    }>("crawl_tasks")
+    const idx = existing.findIndex((t) => t.name === name)
+    if (idx >= 0) {
+      existing[idx] = { ...existing[idx], exposeToMcp: existing[idx].exposeToMcp === false }
+      await setLocal({ crawl_tasks: existing })
+    }
+  }
+
   const handleSaveScript = async (script: ScriptTask) => {
     const { script_tasks: existing = [] } = await getLocal<{
       script_tasks: ScriptTask[]
@@ -1062,6 +1097,7 @@ export default function Options() {
               onAdd={() => startEdit("task")}
               onEdit={(task) => startEdit("task", task)}
               onDelete={handleDeleteTask}
+              onToggleMcp={handleToggleMcp}
             />
           )}
           {!editingView && tab === "library" && (

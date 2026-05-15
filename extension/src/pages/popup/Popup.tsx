@@ -17,6 +17,7 @@ interface CrawlTask {
   ruleName?: string
   scriptName?: string
   url: string
+  exposeToMcp?: boolean
 }
 
 function CrawlPanel() {

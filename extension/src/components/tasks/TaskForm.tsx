@@ -11,6 +11,7 @@ export interface CrawlTask {
   ruleName?: string
   scriptName?: string
   url: string
+  exposeToMcp?: boolean
   createdAt: number
   updatedAt: number
 }
